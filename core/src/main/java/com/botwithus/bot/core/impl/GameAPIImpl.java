@@ -716,6 +716,109 @@ public class GameAPIImpl implements GameAPI {
         return getInt(r, "size");
     }
 
+    // ========================== Config Type Lookups ==========================
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public ItemType getItemType(int id) {
+        Map<String, Object> r = rpc.callSync("get_item_type", Map.of("id", id));
+        return new ItemType(
+                getInt(r, "id"), getString(r, "name"),
+                getBool(r, "members"), getBool(r, "stackable"),
+                getInt(r, "shop_price"), getInt(r, "ge_buy_limit"),
+                getInt(r, "category"), getInt(r, "noted_id"), getInt(r, "wearpos"),
+                getBool(r, "exchangeable"),
+                getStringList(r, "ground_options"), getStringList(r, "inventory_options"),
+                getObjectMap(r, "params")
+        );
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public NpcType getNpcType(int id) {
+        Map<String, Object> r = rpc.callSync("get_npc_type", Map.of("id", id));
+        return new NpcType(
+                getInt(r, "id"), getString(r, "name"), getInt(r, "combat_level"),
+                getBool(r, "visible"), getBool(r, "clickable"),
+                getStringList(r, "options"),
+                getInt(r, "varbit_id"), getInt(r, "varp_id"),
+                getIntList(r, "transforms"),
+                getObjectMap(r, "params")
+        );
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public LocationType getLocationType(int id) {
+        Map<String, Object> r = rpc.callSync("get_location_type", Map.of("id", id));
+        return new LocationType(
+                getInt(r, "id"), getString(r, "name"),
+                getInt(r, "size_x"), getInt(r, "size_y"),
+                getInt(r, "interact_type"), getInt(r, "solid_type"),
+                getBool(r, "members"),
+                getStringList(r, "options"),
+                getInt(r, "varbit_id"), getInt(r, "varp_id"),
+                getIntList(r, "transforms"),
+                getInt(r, "map_sprite_id"),
+                getObjectMap(r, "params")
+        );
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public EnumType getEnumType(int id) {
+        Map<String, Object> r = rpc.callSync("get_enum_type", Map.of("id", id));
+        return new EnumType(
+                getInt(r, "id"), getInt(r, "input_type_id"), getInt(r, "output_type_id"),
+                getInt(r, "int_default"), getString(r, "string_default"),
+                getInt(r, "entry_count"),
+                getObjectMap(r, "entries")
+        );
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public StructType getStructType(int id) {
+        Map<String, Object> r = rpc.callSync("get_struct_type", Map.of("id", id));
+        return new StructType(getInt(r, "id"), getObjectMap(r, "params"));
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public SequenceType getSequenceType(int id) {
+        Map<String, Object> r = rpc.callSync("get_sequence_type", Map.of("id", id));
+        return new SequenceType(
+                getInt(r, "id"), getInt(r, "frame_count"),
+                getIntList(r, "frame_lengths"),
+                getInt(r, "loop_offset"), getInt(r, "priority"),
+                getInt(r, "off_hand"), getInt(r, "main_hand"),
+                getInt(r, "max_loops"),
+                getInt(r, "animating_precedence"), getInt(r, "walking_precedence"),
+                getInt(r, "replay_mode"), getBool(r, "tweened"),
+                getObjectMap(r, "params")
+        );
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public QuestType getQuestType(int id) {
+        Map<String, Object> r = rpc.callSync("get_quest_type", Map.of("id", id));
+        return new QuestType(
+                getInt(r, "id"), getString(r, "name"), getString(r, "list_name"),
+                getInt(r, "category"), getInt(r, "difficulty"),
+                getBool(r, "members_only"),
+                getInt(r, "quest_points"), getInt(r, "quest_point_req"),
+                getInt(r, "quest_item_sprite"),
+                getIntList(r, "start_locations"),
+                getInt(r, "alternate_start_location"),
+                getIntList(r, "dependent_quest_ids"),
+                getMapList(r, "skill_requirements"),
+                getMapList(r, "progress_varps"),
+                getMapList(r, "progress_varbits"),
+                getObjectMap(r, "params")
+        );
+    }
+
     // ========================== Helpers ==========================
 
     private Entity mapEntity(Map<String, Object> m) {
@@ -813,6 +916,43 @@ public class GameAPIImpl implements GameAPI {
     private static List<Map<String, Object>> getList(Map<String, Object> map, String key) {
         Object v = map.get(key);
         if (v instanceof List<?> list) return (List<Map<String, Object>>) list;
+        return List.of();
+    }
+
+    private static List<String> getStringList(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof List<?> list) {
+            return list.stream().map(o -> o != null ? o.toString() : "").toList();
+        }
+        return List.of();
+    }
+
+    private static List<Integer> getIntList(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof List<?> list) {
+            return list.stream()
+                    .map(o -> o instanceof Number n ? n.intValue() : 0)
+                    .toList();
+        }
+        return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> getObjectMap(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof Map<?, ?> m) return (Map<String, Object>) m;
+        return Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> getMapList(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof List<?> list) {
+            return list.stream()
+                    .filter(o -> o instanceof Map)
+                    .map(o -> (Map<String, Object>) o)
+                    .toList();
+        }
         return List.of();
     }
 }

@@ -46,11 +46,21 @@ public final class Bank {
     private final GameAPI api;
     private final InventoryContainer container;
 
+    /**
+     * Creates a new bank wrapper.
+     *
+     * @param api the game API instance
+     */
     public Bank(GameAPI api) {
         this.api = api;
         this.container = new InventoryContainer(api, INVENTORY_ID);
     }
 
+    /**
+     * Returns the underlying {@link InventoryContainer} for advanced queries.
+     *
+     * @return the inventory container
+     */
     public InventoryContainer container() {
         return container;
     }
@@ -79,10 +89,23 @@ public final class Bank {
                 && api.getVarcInt(VARC_CUSTOM_INPUT_TYPE) == 7;
     }
 
+    /**
+     * Checks if the bank contains the specified item.
+     *
+     * @param itemId the item ID to look for
+     * @return {@code true} if the item is in the bank
+     */
     public boolean contains(int itemId) {
         return container.contains(itemId);
     }
 
+    /**
+     * Checks if the bank contains at least the specified amount of an item.
+     *
+     * @param itemId the item ID to look for
+     * @param amount the minimum quantity required
+     * @return {@code true} if enough of the item is in the bank
+     */
     public boolean contains(int itemId, int amount) {
         return container.contains(itemId, amount);
     }
@@ -271,14 +294,29 @@ public final class Bank {
 
     // ========================== Bank State ==========================
 
+    /**
+     * Returns the currently configured custom withdraw amount.
+     *
+     * @return the withdraw amount
+     */
     public int getWithdrawAmount() {
         return api.getVarp(VARP_WITHDRAW_AMOUNT);
     }
 
+    /**
+     * Returns the currently selected preset page (0 for presets 1-9, 1 for presets 10-18).
+     *
+     * @return the preset page index
+     */
     public int getPresetPage() {
         return api.getVarbit(VARBIT_PRESET_PAGE);
     }
 
+    /**
+     * Returns the currently selected side panel view in the bank interface.
+     *
+     * @return the side view (backpack, equipment, or familiar)
+     */
     public SideView view() {
         return switch (api.getVarbit(VARBIT_SIDE_VIEW)) {
             case 0 -> SideView.BACKPACK;
@@ -287,6 +325,11 @@ public final class Bank {
         };
     }
 
+    /**
+     * Returns the current withdraw mode (item or noted form).
+     *
+     * @return the withdraw mode
+     */
     public WithdrawMode withdrawMode() {
         return switch (api.getVarp(VARP_WITHDRAW_MODE)) {
             case 1 -> WithdrawMode.NOTE;
@@ -294,6 +337,11 @@ public final class Bank {
         };
     }
 
+    /**
+     * Returns the current bank interface setting (transfer or presets mode).
+     *
+     * @return the bank setting
+     */
     public BankSetting setting() {
         return switch (api.getVarbit(VARBIT_BANK_SETTING)) {
             case 1 -> BankSetting.PRESETS;
@@ -390,18 +438,30 @@ public final class Bank {
 
     // ========================== Enums ==========================
 
+    /**
+     * Transfer quantity presets for bank deposit and withdraw operations.
+     */
     public enum TransferAmount {
         ONE, FIVE, TEN, ALL, CUSTOM, OTHER
     }
 
+    /**
+     * Bank withdraw mode: items are withdrawn as physical items or bank notes.
+     */
     public enum WithdrawMode {
         ITEM, NOTE
     }
 
+    /**
+     * The side panel view shown alongside the bank grid.
+     */
     public enum SideView {
         BACKPACK, EQUIPMENT, FAMILIAR
     }
 
+    /**
+     * The bank interface mode: standard transfer controls or preset selection.
+     */
     public enum BankSetting {
         TRANSFER, PRESETS
     }

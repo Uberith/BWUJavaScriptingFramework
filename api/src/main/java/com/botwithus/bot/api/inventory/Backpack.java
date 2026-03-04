@@ -24,45 +24,100 @@ public final class Backpack {
     private final GameAPI api;
     private final InventoryContainer container;
 
+    /**
+     * Creates a new backpack wrapper.
+     *
+     * @param api the game API instance
+     */
     public Backpack(GameAPI api) {
         this.api = api;
         this.container = new InventoryContainer(api, INVENTORY_ID);
     }
 
+    /**
+     * Returns the underlying {@link InventoryContainer} for advanced queries.
+     *
+     * @return the inventory container
+     */
     public InventoryContainer container() {
         return container;
     }
 
     // ========================== Query Methods ==========================
 
+    /**
+     * Checks if the backpack has no items.
+     *
+     * @return {@code true} if the backpack is empty
+     */
     public boolean isEmpty() {
         return container.isEmpty();
     }
 
+    /**
+     * Checks if the backpack has no free slots.
+     *
+     * @return {@code true} if the backpack is full
+     */
     public boolean isFull() {
         return container.isFull();
     }
 
+    /**
+     * Checks if the backpack contains the specified item.
+     *
+     * @param itemId the item ID to look for
+     * @return {@code true} if the item is present
+     */
     public boolean contains(int itemId) {
         return container.contains(itemId);
     }
 
+    /**
+     * Checks if the backpack contains at least the specified amount of an item.
+     *
+     * @param itemId the item ID to look for
+     * @param amount the minimum quantity required
+     * @return {@code true} if enough of the item is present
+     */
     public boolean contains(int itemId, int amount) {
         return container.contains(itemId, amount);
     }
 
+    /**
+     * Counts the total quantity of an item across all backpack slots.
+     *
+     * @param itemId the item ID to count
+     * @return the total quantity
+     */
     public int count(int itemId) {
         return container.count(itemId);
     }
 
+    /**
+     * Returns the item in a specific backpack slot.
+     *
+     * @param slot the slot index (0-based)
+     * @return the inventory item in that slot
+     */
     public InventoryItem getSlot(int slot) {
         return container.slot(slot);
     }
 
+    /**
+     * Returns all non-empty items in the backpack.
+     *
+     * @return a list of inventory items
+     */
     public List<InventoryItem> getItems() {
         return container.getItems();
     }
 
+    /**
+     * Returns the number of empty slots in the backpack.
+     *
+     * @return the free slot count
+     */
     public int freeSlots() {
         return container.freeSlots();
     }

@@ -9,17 +9,35 @@ import java.util.List;
 /**
  * Wraps a game inventory (backpack, bank, equipment, etc.) and provides
  * convenient query methods over the pipe RPC.
+ *
+ * <p>This is the base wrapper used by specialized containers such as
+ * {@link Backpack}, {@link Equipment}, and {@link Bank}.</p>
+ *
+ * @see Backpack
+ * @see Equipment
+ * @see Bank
  */
 public class InventoryContainer {
 
     private final GameAPI api;
     private final int id;
 
+    /**
+     * Creates a new inventory container wrapper.
+     *
+     * @param api the game API instance
+     * @param id  the inventory ID to wrap
+     */
     public InventoryContainer(GameAPI api, int id) {
         this.api = api;
         this.id = id;
     }
 
+    /**
+     * Returns the inventory ID this container wraps.
+     *
+     * @return the inventory ID
+     */
     public int getId() {
         return id;
     }
@@ -51,6 +69,11 @@ public class InventoryContainer {
         return getItems().isEmpty();
     }
 
+    /**
+     * Checks if the inventory has at least one item.
+     *
+     * @return {@code true} if the inventory contains any items
+     */
     public boolean isNotEmpty() {
         return !isEmpty();
     }
