@@ -1,28 +1,77 @@
-# CLAUDE.md
+1
+0# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-JBotWithUsV2 is a Java project using Gradle (Kotlin DSL) with JUnit 5 for testing. Group: `com.revonx`.
+JBotWithUsV2 is a Java 21 modular game scripting framework. It communicates with a game server via Windows named pipes using MessagePack-encoded JSON-RPC. Scripts are dynamically discovered at runtime via Java's ServiceLoader SPI and execute on virtual threads.
+
+Group: `com.botwithus` | Java 21 | Gradle 8.14 (Kotlin DSL) | JUnit 5
 
 ## Build Commands
 
 ```bash
-./gradlew build          # Build the project
-./gradlew test           # Run all tests
-./gradlew test --tests "com.revonx.SomeTest.methodName"  # Run a single test
-./gradlew clean build    # Clean and rebuild
+./gradlew build                    # Build all modules (also installs example-script JAR to scripts/)
+./gradlew clean build              # Clean and rebuild
+./gradlew :cli:run                 # Run the CLI/GUI application
+./gradlew :example-script:build    # Build and auto-install example script to scripts/
+./gradlew test                     # Run tests
+./gradlew test --tests "com.botwithus.SomeTest.methodName"  # Run a single test
 ```
 
-## Architecture
+## Module Architecture
 
-- **Language**: Java
-- **Build**: Gradle with Kotlin DSL (`build.gradle.kts`)
-- **Testing**: JUnit 5 (Jupiter) with JUnit Platform launcher
-- **Source layout**: Standard Gradle structure
-  - `src/main/java/` — application code
-  - `src/main/resources/` — application resources
-  - `src/test/java/` — test code
-  - `src/test/resources/` — test resources
-- **Base package**: `com.revonx`
+Four Gradle subprojects with strict dependency layering:
+
+```
+api                 (no deps)        — Public interfaces, models, query builders
+  ↑ required by
+core                (api + msgpack)  — RPC client, pipe transport, script runtime
+  ↑ required by
+cli                 (api + core)     — Interactive CLI/GUI, command system
+example-script      (api only)       — Example BotScript implementations
+```
+
+### api (`com.botwithus.bot.api`)
+Pure interface module with zero dependencies. Contains:
+- **`BotScript`** — SPI interface scripts implement (`onStart`/`onLoop`/`onStop`)
+- **`GameAPI`** — 100+ methods for game interaction (entities, inventories, actions, UI, vars, cache)
+- **`ScriptContext`** — Provides scripts access to GameAPI, EventBus, MessageBus
+- **`ScriptManifest`** — Annotation for script metadata
+- **`entities/`** — Fluent query builders: `Npcs`, `Players`, `SceneObjects`, `GroundItems`
+- **`inventory/`** — `Backpack`, `Bank`, `Equipment` wrappers
+- **`event/`** — `EventBus` and game events
+- **`isc/`** — Inter-Script Communication via `MessageBus`
+- **`query/`** — Filter interfaces for entity/component/inventory queries
+
+### core (`com.botwithus.bot.core`)
+Runtime and communication layer:
+- **`pipe/PipeClient`** — Windows named pipe client (`\\.\pipe\BotWithUs`), length-prefixed messages
+- **`rpc/RpcClient`** — Synchronous JSON-RPC over pipe with MessagePack serialization
+- **`msgpack/MessagePackCodec`** — Serialization using `org.msgpack:msgpack-core:0.9.8`
+- **`runtime/ScriptLoader`** — Discovers script JARs in `scripts/` dir, creates child `ModuleLayer` per script
+- **`runtime/ScriptRuntime`** — Manages script lifecycle across multiple scripts
+- **`runtime/ScriptRunner`** — Runs individual script on a virtual thread
+- **`impl/`** — Concrete implementations of API interfaces (`GameAPIImpl`, `EventBusImpl`, etc.)
+
+### cli (`com.botwithus.bot.cli`)
+Interactive application with command system:
+- **Main class**: `com.botwithus.bot.cli.gui.JBotGui`
+- **Commands**: `connect`, `scripts`, `screenshot`, `logs`, `reload`, `ping`, `help`, `clear`, `exit`
+- **`gui/`** — Swing-based GUI with ANSI color support
+- **`command/`** — Command registry, parser, and implementations
+- **`log/`** — In-memory log capture and buffering
+
+### example-script (`com.botwithus.bot.scripts.example`)
+Reference implementations: `ExampleScript`, `WoodcuttingFletcherScript`. Build auto-copies JAR to `scripts/`.
+
+## Key Patterns
+
+**Script SPI**: Scripts must be Java modules that `provides com.botwithus.bot.api.BotScript with <ClassName>` in their `module-info.java`. Scripts return delay (ms) from `onLoop()`, or `-1` to stop.
+
+**Communication flow**: `BotScript → GameAPI → RpcClient → PipeClient → Game Server`
+
+**Module path**: The CLI's run task places the API JAR on the module path (not classpath) so `ScriptLoader` can build child module layers that reference the API module.
+
+**Script installation**: Script JARs go in the `scripts/` directory at project root. The `example-script` build task does this automatically via `installScript`.

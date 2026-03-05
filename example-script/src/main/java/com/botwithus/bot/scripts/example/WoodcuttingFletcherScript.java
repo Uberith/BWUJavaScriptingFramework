@@ -75,7 +75,7 @@ public class WoodcuttingFletcherScript implements BotScript {
         }
 
         SceneObject tree = objects.query()
-                .named("Tree")
+                .namedExact("Tree")
                 .visible()
                 .withinDistance(15)
                 .filter(t -> t.hasOption("Chop down"))

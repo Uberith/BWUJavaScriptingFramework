@@ -2,6 +2,7 @@ package com.botwithus.bot.core;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.core.impl.EventBusImpl;
+import com.botwithus.bot.core.impl.EventDispatcher;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
@@ -26,12 +27,10 @@ public class JBotApplication {
             GameAPIImpl gameAPI = new GameAPIImpl(rpc);
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
-            // Route pipe events to the event bus
-            rpc.setEventHandler(event -> {
-                // Events can be extended here to dispatch typed events
-                String eventType = (String) event.get("event");
-                System.out.println("[JBot] Received event: " + eventType);
-            });
+            // Route pipe events to the typed event bus and enable auto-subscription
+            EventDispatcher dispatcher = new EventDispatcher(eventBus);
+            dispatcher.bindAutoSubscription(gameAPI);
+            rpc.setEventHandler(dispatcher::dispatch);
 
             // Discover scripts from scripts/ directory (drop JARs there)
             List<BotScript> scripts = ScriptLoader.loadScripts();

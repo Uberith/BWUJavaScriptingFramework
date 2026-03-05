@@ -82,7 +82,7 @@ public class ExampleScript implements BotScript {
         }
 
         // Objects with transform resolution
-        SceneObject tree = objects.nearest("Tree");
+        SceneObject tree = objects.query().namedExact("Tree").nearest();
         if (tree != null && tree.canTransform()) {
             System.out.println("Tree resolved: " + tree.resolveTransform().name());
         }

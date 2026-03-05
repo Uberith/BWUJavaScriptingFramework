@@ -62,10 +62,9 @@ public class CliContext {
             GameAPIImpl gameAPI = new GameAPIImpl(rpc);
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
-            rpc.setEventHandler(event -> {
-                String eventType = (String) event.get("event");
-                System.out.println("[" + connName + "] Received event: " + eventType);
-            });
+            var dispatcher = new com.botwithus.bot.core.impl.EventDispatcher(eventBus);
+            dispatcher.bindAutoSubscription(gameAPI);
+            rpc.setEventHandler(dispatcher::dispatch);
 
             ScriptRuntime runtime = new ScriptRuntime(context);
             Connection conn = new Connection(connName, pipe, rpc, runtime);
