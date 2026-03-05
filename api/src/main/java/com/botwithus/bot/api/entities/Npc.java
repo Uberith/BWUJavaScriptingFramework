@@ -1,7 +1,9 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.Entity;
+import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.NpcType;
 
 import java.util.List;
@@ -73,6 +75,37 @@ public class Npc extends EntityContext {
      */
     public boolean isFollowing() {
         return getFollowingIndex() != -1;
+    }
+
+    // ========================== Interaction ==========================
+
+    /**
+     * Interacts with this NPC using the given right-click option name.
+     *
+     * @param option the option text (e.g. "Attack", "Talk-to"), case-insensitive
+     * @return {@code true} if the option was found and the action was queued
+     */
+    public boolean interact(String option) {
+        List<String> options = getOptions();
+        for (int i = 0; i < options.size(); i++) {
+            if (options.get(i) != null && options.get(i).equalsIgnoreCase(option)) {
+                interact(i + 1);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Interacts with this NPC using the given 1-based option index.
+     *
+     * @param optionIndex the 1-based option index (1–6)
+     */
+    public void interact(int optionIndex) {
+        if (optionIndex < 1 || optionIndex >= ActionTypes.NPC_OPTIONS.length) {
+            throw new IllegalArgumentException("NPC option index out of range: " + optionIndex);
+        }
+        api.queueAction(new GameAction(ActionTypes.NPC_OPTIONS[optionIndex], 0, raw.handle(), 0));
     }
 
     @Override

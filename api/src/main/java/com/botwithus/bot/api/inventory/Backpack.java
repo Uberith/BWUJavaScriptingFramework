@@ -162,7 +162,7 @@ public final class Backpack {
         if (comp == null) return false;
         int hash = comp.interfaceId() << 16 | comp.componentId();
         api.queueAction(new GameAction(
-                ActionTypes.SELECTABLE_COMPONENT, 0, comp.subComponentId(), hash));
+                ActionTypes.SELECT_COMPONENT_ITEM, 0, comp.subComponentId(), hash));
         return true;
     }
 

@@ -1,7 +1,9 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.Entity;
+import com.botwithus.bot.api.model.GameAction;
 
 /**
  * Rich wrapper for a player entity.
@@ -36,6 +38,20 @@ public class Player extends EntityContext {
      */
     public boolean isFollowing() {
         return getFollowingIndex() != -1;
+    }
+
+    // ========================== Interaction ==========================
+
+    /**
+     * Interacts with this player using the given 1-based option index.
+     *
+     * @param optionIndex the 1-based option index (1–10)
+     */
+    public void interact(int optionIndex) {
+        if (optionIndex < 1 || optionIndex >= ActionTypes.PLAYER_OPTIONS.length) {
+            throw new IllegalArgumentException("Player option index out of range: " + optionIndex);
+        }
+        api.queueAction(new GameAction(ActionTypes.PLAYER_OPTIONS[optionIndex], 0, raw.handle(), 0));
     }
 
     @Override

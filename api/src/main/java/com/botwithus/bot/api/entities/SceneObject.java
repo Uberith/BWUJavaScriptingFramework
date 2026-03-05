@@ -1,7 +1,9 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.Entity;
+import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.LocationType;
 
 import java.util.List;
@@ -140,6 +142,37 @@ public class SceneObject extends EntityContext {
     public LocationType resolveTransform() {
         int id = resolveTransformId();
         return id == typeId() ? getType() : api.getLocationType(id);
+    }
+
+    // ========================== Interaction ==========================
+
+    /**
+     * Interacts with this scene object using the given right-click option name.
+     *
+     * @param option the option text (e.g. "Open", "Bank", "Mine"), case-insensitive
+     * @return {@code true} if the option was found and the action was queued
+     */
+    public boolean interact(String option) {
+        List<String> options = getOptions();
+        for (int i = 0; i < options.size(); i++) {
+            if (options.get(i) != null && options.get(i).equalsIgnoreCase(option)) {
+                interact(i + 1);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Interacts with this scene object using the given 1-based option index.
+     *
+     * @param optionIndex the 1-based option index (1–6)
+     */
+    public void interact(int optionIndex) {
+        if (optionIndex < 1 || optionIndex >= ActionTypes.OBJECT_OPTIONS.length) {
+            throw new IllegalArgumentException("Object option index out of range: " + optionIndex);
+        }
+        api.queueAction(new GameAction(ActionTypes.OBJECT_OPTIONS[optionIndex], 0, raw.handle(), 0));
     }
 
     @Override
