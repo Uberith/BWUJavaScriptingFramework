@@ -3,7 +3,12 @@ package com.botwithus.bot.core.pipe;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 /**
  * Named pipe client connecting to \\.\pipe\BotWithUs.
@@ -11,8 +16,10 @@ import java.util.function.Consumer;
  */
 public class PipeClient implements AutoCloseable {
 
-    private static final String PIPE_PATH = "\\\\.\\pipe\\BotWithUs";
+    private static final String PIPE_PREFIX = "\\\\.\\pipe\\";
+    private static final String DEFAULT_PIPE_NAME = "BotWithUs";
 
+    private final String pipePath;
     private final RandomAccessFile pipe;
     private final InputStream in;
     private final OutputStream out;
@@ -21,15 +28,40 @@ public class PipeClient implements AutoCloseable {
     private Consumer<byte[]> messageHandler;
 
     public PipeClient() {
+        this(DEFAULT_PIPE_NAME);
+    }
+
+    public PipeClient(String pipeName) {
+        this.pipePath = PIPE_PREFIX + pipeName;
         try {
-            this.pipe = new RandomAccessFile(PIPE_PATH, "rw");
+            this.pipe = new RandomAccessFile(pipePath, "rw");
             this.in = new FileInputStream(pipe.getFD());
             this.out = new FileOutputStream(pipe.getFD());
         } catch (IOException e) {
-            throw new PipeException("Failed to connect to pipe: " + PIPE_PATH, e);
+            throw new PipeException("Failed to connect to pipe: " + pipePath, e);
         }
 
         this.readerThread = Thread.ofVirtual().name("pipe-reader").start(this::readLoop);
+    }
+
+    public static List<String> scanPipes() {
+        return scanPipes("BotWithUs");
+    }
+
+    public static List<String> scanPipes(String prefix) {
+        String lowerPrefix = prefix.toLowerCase();
+        try (Stream<Path> stream = Files.list(Path.of(PIPE_PREFIX))) {
+            return stream
+                    .map(p -> p.getFileName().toString())
+                    .filter(name -> name.toLowerCase().contains(lowerPrefix))
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    public String getPipePath() {
+        return pipePath;
     }
 
     public void setMessageHandler(Consumer<byte[]> handler) {
@@ -88,7 +120,9 @@ public class PipeClient implements AutoCloseable {
     @Override
     public void close() {
         running = false;
-        readerThread.interrupt();
+        // Close the pipe first — this unblocks the reader thread stuck on in.read()
+        // (Thread.interrupt() does NOT unblock blocking I/O on Windows named pipes)
         try { pipe.close(); } catch (IOException ignored) {}
+        readerThread.interrupt();
     }
 }

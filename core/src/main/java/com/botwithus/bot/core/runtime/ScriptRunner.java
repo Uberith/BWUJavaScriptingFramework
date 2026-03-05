@@ -40,8 +40,16 @@ public class ScriptRunner implements Runnable {
         return running.get();
     }
 
+    public BotScript getScript() {
+        return script;
+    }
+
+    public ScriptManifest getManifest() {
+        return script.getClass().getAnnotation(ScriptManifest.class);
+    }
+
     public String getScriptName() {
-        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
+        ScriptManifest manifest = getManifest();
         return manifest != null ? manifest.name() : script.getClass().getSimpleName();
     }
 

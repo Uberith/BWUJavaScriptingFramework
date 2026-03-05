@@ -1,0 +1,92 @@
+package com.botwithus.bot.cli;
+
+import com.botwithus.bot.cli.command.Command;
+import com.botwithus.bot.cli.command.CommandParser;
+import com.botwithus.bot.cli.command.CommandRegistry;
+import com.botwithus.bot.cli.command.ParsedCommand;
+import com.botwithus.bot.cli.command.impl.*;
+import com.botwithus.bot.cli.log.LogBuffer;
+import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.output.AnsiCodes;
+
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Scanner;
+
+public class JBotCli {
+
+    private static final String BANNER = """
+
+               _ ____        _      ____ _     ___
+              | | __ )  ___ | |_   / ___| |   |_ _|
+           _  | |  _ \\ / _ \\| __| | |   | |    | |
+          | |_| | |_) | (_) | |_  | |___| |___ | |
+           \\___/|____/ \\___/ \\__|  \\____|_____|___|
+                  BotWithUs Script Manager
+
+              Type 'help' for available commands.
+            """;
+
+    public static void main(String[] args) {
+        // Force UTF-8 output on Windows
+        PrintStream utf8Out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
+        PrintStream utf8Err = new PrintStream(System.err, true, StandardCharsets.UTF_8);
+        System.setOut(utf8Out);
+        System.setErr(utf8Err);
+
+        LogBuffer logBuffer = new LogBuffer();
+        LogCapture logCapture = new LogCapture(logBuffer);
+        logCapture.install();
+
+        PrintStream out = logCapture.getOriginalOut();
+        CliContext ctx = new CliContext(logBuffer, logCapture);
+        CommandRegistry registry = new CommandRegistry();
+
+        // Register commands
+        registry.register(new HelpCommand(registry));
+        registry.register(new ConnectCommand());
+        registry.register(new ScriptsCommand());
+        registry.register(new LogsCommand());
+        registry.register(new ReloadCommand());
+        registry.register(new ScreenshotCommand());
+        registry.register(new ClearCommand());
+        registry.register(new ExitCommand());
+
+        // Print banner
+        out.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
+
+        // REPL loop
+        Scanner scanner = new Scanner(System.in);
+        while (true) {
+            String connLabel;
+            if (ctx.hasActiveConnection()) {
+                String name = ctx.getActiveConnectionName();
+                int count = ctx.getConnections().size();
+                String suffix = count > 1 ? " [" + count + "]" : "";
+                connLabel = AnsiCodes.colorize("*", AnsiCodes.GREEN) + " "
+                        + AnsiCodes.bold("jbot") + ":" + AnsiCodes.colorize(name, AnsiCodes.CYAN) + suffix;
+            } else {
+                connLabel = AnsiCodes.colorize("o", AnsiCodes.RED) + " " + AnsiCodes.bold("jbot");
+            }
+            out.print(connLabel + "> ");
+            out.flush();
+
+            if (!scanner.hasNextLine()) break;
+            String line = scanner.nextLine().trim();
+            if (line.isEmpty()) continue;
+
+            ParsedCommand parsed = CommandParser.parse(line);
+            Command cmd = registry.resolve(parsed.name());
+            if (cmd == null) {
+                out.println("Unknown command: " + parsed.name() + ". Type 'help' for available commands.");
+                continue;
+            }
+
+            try {
+                cmd.execute(parsed, ctx);
+            } catch (Exception e) {
+                out.println("Error: " + e.getMessage());
+            }
+        }
+    }
+}

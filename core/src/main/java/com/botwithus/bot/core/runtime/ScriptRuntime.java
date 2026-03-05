@@ -39,6 +39,34 @@ public class ScriptRuntime {
         runners.clear();
     }
 
+    public ScriptRunner findRunner(String name) {
+        for (ScriptRunner runner : runners) {
+            if (runner.getScriptName().equalsIgnoreCase(name)) {
+                return runner;
+            }
+        }
+        return null;
+    }
+
+    public boolean stopScript(String name) {
+        ScriptRunner runner = findRunner(name);
+        if (runner != null && runner.isRunning()) {
+            runner.stop();
+            System.out.println("[Runtime] Stopped script: " + runner.getScriptName());
+            return true;
+        }
+        return false;
+    }
+
+    public boolean removeScript(String name) {
+        ScriptRunner runner = findRunner(name);
+        if (runner != null && !runner.isRunning()) {
+            runners.remove(runner);
+            return true;
+        }
+        return false;
+    }
+
     public List<ScriptRunner> getRunners() {
         return List.copyOf(runners);
     }

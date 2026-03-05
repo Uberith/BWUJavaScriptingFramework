@@ -1,3 +1,3 @@
 rootProject.name = "JBotWithUsV2"
 
-include("api", "core", "example-script")
+include("api", "core", "cli", "example-script")
