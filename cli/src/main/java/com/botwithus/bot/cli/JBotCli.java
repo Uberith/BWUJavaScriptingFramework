@@ -50,6 +50,8 @@ public class JBotCli {
         registry.register(new LogsCommand());
         registry.register(new ReloadCommand());
         registry.register(new ScreenshotCommand());
+        registry.register(new MountCommand());
+        registry.register(new UnmountCommand());
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
@@ -64,8 +66,10 @@ public class JBotCli {
                 String name = ctx.getActiveConnectionName();
                 int count = ctx.getConnections().size();
                 String suffix = count > 1 ? " [" + count + "]" : "";
+                String mountIndicator = ctx.isMounted()
+                        ? " " + AnsiCodes.colorize("[mounted]", AnsiCodes.MAGENTA) : "";
                 connLabel = AnsiCodes.colorize("*", AnsiCodes.GREEN) + " "
-                        + AnsiCodes.bold("jbot") + ":" + AnsiCodes.colorize(name, AnsiCodes.CYAN) + suffix;
+                        + AnsiCodes.bold("jbot") + ":" + AnsiCodes.colorize(name, AnsiCodes.CYAN) + suffix + mountIndicator;
             } else {
                 connLabel = AnsiCodes.colorize("o", AnsiCodes.RED) + " " + AnsiCodes.bold("jbot");
             }

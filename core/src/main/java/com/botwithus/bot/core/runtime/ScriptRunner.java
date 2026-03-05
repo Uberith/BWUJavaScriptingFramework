@@ -16,6 +16,7 @@ public class ScriptRunner implements Runnable {
     private final ScriptContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread thread;
+    private String connectionName;
 
     public ScriptRunner(BotScript script, ScriptContext context) {
         this.script = script;
@@ -53,8 +54,19 @@ public class ScriptRunner implements Runnable {
         return manifest != null ? manifest.name() : script.getClass().getSimpleName();
     }
 
+    public void setConnectionName(String connectionName) {
+        this.connectionName = connectionName;
+    }
+
+    public String getConnectionName() {
+        return connectionName;
+    }
+
     @Override
     public void run() {
+        if (connectionName != null) {
+            ConnectionContext.set(connectionName);
+        }
         try {
             script.onStart(context);
             while (running.get() && !Thread.currentThread().isInterrupted()) {
@@ -76,6 +88,7 @@ public class ScriptRunner implements Runnable {
             } catch (Exception e) {
                 System.err.println("[ScriptRunner] Error in onStop for " + getScriptName() + ": " + e.getMessage());
             }
+            ConnectionContext.clear();
         }
     }
 }

@@ -6,6 +6,8 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.entities.SceneObject;
 import com.botwithus.bot.api.entities.SceneObjects;
+import com.botwithus.bot.api.event.ActionExecutedEvent;
+import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.GameAction;
@@ -84,10 +86,6 @@ public class WoodcuttingFletcherScript implements BotScript {
         if (tree == null) {
             System.out.println("[WoodcuttingFletcher] No tree found!");
         } else {
-            for (String option : tree.getOptions()) {
-                System.out.println("[WoodcuttingFletcher] " + option);
-            }
-
             tree.interact("Chop down");
             return 1200;
         }

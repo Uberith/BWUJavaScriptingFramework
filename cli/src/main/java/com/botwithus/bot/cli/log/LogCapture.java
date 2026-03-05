@@ -1,14 +1,18 @@
 package com.botwithus.bot.cli.log;
 
+import com.botwithus.bot.core.runtime.ConnectionContext;
+
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.util.function.Predicate;
 
 public class LogCapture {
 
     private final PrintStream originalOut;
     private final PrintStream originalErr;
     private final LogBuffer logBuffer;
+    private volatile Predicate<String> connectionFilter;
 
     public LogCapture(LogBuffer logBuffer) {
         this.logBuffer = logBuffer;
@@ -24,8 +28,8 @@ public class LogCapture {
     }
 
     public void install() {
-        System.setOut(new CapturingPrintStream(originalOut, logBuffer, "stdout", "INFO"));
-        System.setErr(new CapturingPrintStream(originalErr, logBuffer, "stderr", "ERROR"));
+        System.setOut(new CapturingPrintStream(originalOut, logBuffer, "stdout", "INFO", this));
+        System.setErr(new CapturingPrintStream(originalErr, logBuffer, "stderr", "ERROR", this));
     }
 
     public void restore() {
@@ -41,16 +45,17 @@ public class LogCapture {
         return originalErr;
     }
 
-    private static class CapturingPrintStream extends PrintStream {
-        private final LogBuffer logBuffer;
-        private final String source;
-        private final String level;
+    public void setConnectionFilter(Predicate<String> filter) {
+        this.connectionFilter = filter;
+    }
 
-        CapturingPrintStream(PrintStream original, LogBuffer logBuffer, String source, String level) {
-            super(new TeeOutputStream(original, logBuffer, source, level));
-            this.logBuffer = logBuffer;
-            this.source = source;
-            this.level = level;
+    public Predicate<String> getConnectionFilter() {
+        return connectionFilter;
+    }
+
+    private static class CapturingPrintStream extends PrintStream {
+        CapturingPrintStream(PrintStream original, LogBuffer logBuffer, String source, String level, LogCapture capture) {
+            super(new TeeOutputStream(original, logBuffer, source, level, capture));
         }
     }
 
@@ -59,13 +64,15 @@ public class LogCapture {
         private final LogBuffer logBuffer;
         private final String source;
         private final String level;
+        private final LogCapture capture;
         private final ByteArrayOutputStream lineBuffer = new ByteArrayOutputStream();
 
-        TeeOutputStream(PrintStream original, LogBuffer logBuffer, String source, String level) {
+        TeeOutputStream(PrintStream original, LogBuffer logBuffer, String source, String level, LogCapture capture) {
             this.original = original;
             this.logBuffer = logBuffer;
             this.source = source;
             this.level = level;
+            this.capture = capture;
         }
 
         @Override
@@ -92,10 +99,19 @@ public class LogCapture {
         private void flushLine() {
             String line = lineBuffer.toString();
             lineBuffer.reset();
+
+            String connection = ConnectionContext.get();
+
             if (!line.isEmpty()) {
-                logBuffer.add(new LogEntry(source, level, line));
+                logBuffer.add(new LogEntry(source, level, line, connection));
             }
-            original.println(line);
+
+            // Apply connection filter: print to original if no filter, or connection is null
+            // (system message), or the filter matches.
+            Predicate<String> filter = capture.connectionFilter;
+            if (filter == null || connection == null || filter.test(connection)) {
+                original.println(line);
+            }
         }
     }
 }

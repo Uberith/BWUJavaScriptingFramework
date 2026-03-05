@@ -13,9 +13,18 @@ public class ScriptRuntime {
 
     private final ScriptContext context;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
+    private String connectionName;
 
     public ScriptRuntime(ScriptContext context) {
         this.context = context;
+    }
+
+    public void setConnectionName(String connectionName) {
+        this.connectionName = connectionName;
+    }
+
+    public String getConnectionName() {
+        return connectionName;
     }
 
     /**
@@ -23,6 +32,9 @@ public class ScriptRuntime {
      */
     public ScriptRunner registerScript(BotScript script) {
         ScriptRunner runner = new ScriptRunner(script, context);
+        if (connectionName != null) {
+            runner.setConnectionName(connectionName);
+        }
         runners.add(runner);
         return runner;
     }

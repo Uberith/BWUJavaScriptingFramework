@@ -12,10 +12,13 @@ import java.util.stream.Stream;
  * Named pipe client connecting to \\.\pipe\BotWithUs.
  * Uses 4-byte LE length-prefix framing.
  *
- * <p>All I/O is synchronous. Windows named pipes use non-overlapped handles,
- * so concurrent read/write on the same handle causes deadlocks. Both
- * {@link #send} and {@link #readMessage} are synchronized on this instance
- * to ensure only one I/O operation at a time.</p>
+ * <p>Windows named pipes opened via {@link RandomAccessFile} use synchronous
+ * (non-overlapped) handles where all I/O is serialized by the kernel.
+ * Concurrent read and write from different threads will deadlock. Callers
+ * must ensure only one thread accesses the pipe at a time.</p>
+ *
+ * <p>Use {@link #available()} to check for data without blocking. This calls
+ * {@code PeekNamedPipe} under the hood via {@link FileInputStream#available()}.</p>
  */
 public class PipeClient implements AutoCloseable {
 
@@ -24,6 +27,7 @@ public class PipeClient implements AutoCloseable {
 
     private final String pipePath;
     private final RandomAccessFile pipe;
+    private final FileInputStream pipeInput;
     private volatile boolean open = true;
 
     public PipeClient() {
@@ -34,6 +38,7 @@ public class PipeClient implements AutoCloseable {
         this.pipePath = PIPE_PREFIX + pipeName;
         try {
             this.pipe = new RandomAccessFile(pipePath, "rw");
+            this.pipeInput = new FileInputStream(pipe.getFD());
         } catch (IOException e) {
             throw new PipeException("Failed to connect to pipe: " + pipePath, e);
         }
@@ -64,9 +69,23 @@ public class PipeClient implements AutoCloseable {
     }
 
     /**
-     * Sends a length-prefixed message over the pipe.
+     * Returns the number of bytes available to read without blocking.
+     * Uses {@code PeekNamedPipe} on Windows.
      */
-    public synchronized void send(byte[] data) {
+    public int available() {
+        if (!open) return 0;
+        try {
+            return pipeInput.available();
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Sends a length-prefixed message over the pipe.
+     * <p>Not thread-safe — caller must ensure exclusive pipe access.</p>
+     */
+    public void send(byte[] data) {
         if (!open) throw new PipeException("Pipe is closed");
         try {
             byte[] header = ByteBuffer.allocate(4)
@@ -83,8 +102,9 @@ public class PipeClient implements AutoCloseable {
     /**
      * Reads the next length-prefixed message from the pipe.
      * Blocks until a complete message is available.
+     * <p>Not thread-safe — caller must ensure exclusive pipe access.</p>
      */
-    public synchronized byte[] readMessage() {
+    public byte[] readMessage() {
         if (!open) throw new PipeException("Pipe is closed");
         try {
             byte[] header = new byte[4];

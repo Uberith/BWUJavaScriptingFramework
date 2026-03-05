@@ -79,6 +79,8 @@ public class JBotGui extends JFrame {
         registry.register(new LogsCommand());
         registry.register(new ReloadCommand());
         registry.register(new ScreenshotCommand());
+        registry.register(new MountCommand());
+        registry.register(new UnmountCommand());
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
@@ -172,7 +174,7 @@ public class JBotGui extends JFrame {
         String connName = ctx.getActiveConnectionName();
         int count = ctx.getConnections().size();
 
-        inputPanel.updatePrompt(connName, connected, count);
+        inputPanel.updatePrompt(connName, connected, count, ctx.getMountedConnectionName());
 
         if (connected) {
             String suffix = count > 1 ? " [" + count + "]" : "";

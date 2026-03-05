@@ -2,36 +2,75 @@ package com.botwithus.bot.core.rpc;
 
 import com.botwithus.bot.core.msgpack.MessagePackCodec;
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.pipe.PipeException;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.botwithus.bot.core.runtime.ConnectionContext;
+
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
- * RPC layer over the named pipe. Sends a request then reads messages until
- * the matching response arrives — all on the calling thread.
+ * RPC layer over the named pipe.
  *
- * <p>Windows named pipes use non-overlapped handles where all I/O is
- * serialized by the kernel. A dedicated reader thread would deadlock with
- * a writer thread, so we do sequential write-then-read instead.</p>
+ * <p>Windows named pipes with synchronous handles serialize all I/O on the
+ * same handle — a blocked {@code ReadFile} prevents {@code WriteFile} from
+ * another thread. To avoid deadlocks, all pipe access is protected by a
+ * single {@link #pipeLock}.</p>
  *
- * <p>If the server pushes event messages before the RPC response, they are
- * dispatched to the {@link #setEventHandler event handler} inline.</p>
+ * <p>A background reader thread polls for incoming messages using
+ * {@link PipeClient#available()} (which calls {@code PeekNamedPipe} on
+ * Windows) so it never blocks on the pipe handle. When data is available
+ * and no RPC call is in flight, the reader thread acquires the lock and
+ * reads. Events are dispatched on virtual threads.</p>
+ *
+ * <p>When an RPC call is active ({@link #doCall}), the calling thread holds
+ * the lock and reads responses itself (dispatching any interleaved events),
+ * exactly like the original sequential model.</p>
  */
 public class RpcClient implements AutoCloseable {
 
     private final PipeClient pipe;
     private final AtomicInteger idCounter = new AtomicInteger(1);
+    private final ReentrantLock pipeLock = new ReentrantLock();
+
     private Consumer<Map<String, Object>> eventHandler;
+    private volatile boolean running;
+    private String connectionName;
 
     public RpcClient(PipeClient pipe) {
         this.pipe = pipe;
     }
 
+    public void setConnectionName(String connectionName) {
+        this.connectionName = connectionName;
+    }
+
+    public String getConnectionName() {
+        return connectionName;
+    }
+
     public void setEventHandler(Consumer<Map<String, Object>> handler) {
         this.eventHandler = handler;
+    }
+
+    /**
+     * Starts the background reader thread. Must be called after
+     * {@link #setEventHandler} and before any RPC calls.
+     */
+    public void start() {
+        if (running) return;
+        running = true;
+        String connName = this.connectionName;
+        Thread.ofVirtual().name("rpc-reader").start(() -> {
+            if (connName != null) {
+                ConnectionContext.set(connName);
+            }
+            readerLoop();
+        });
     }
 
     /**
@@ -77,16 +116,59 @@ public class RpcClient implements AutoCloseable {
 
     @Override
     public void close() {
+        running = false;
         pipe.close();
     }
 
     // ========================== Internal ==========================
 
     /**
-     * Sends the request, then reads messages until the response with the
-     * matching ID arrives. Events received in between are dispatched.
+     * Background reader loop. Polls {@link PipeClient#available()} to check
+     * for data without blocking the pipe handle. When data is available and
+     * no RPC call holds the lock, reads and dispatches events.
      */
-    private synchronized Map<String, Object> doCall(String method, Map<String, Object> params) {
+    private void readerLoop() {
+        while (running && pipe.isOpen()) {
+            try {
+                if (pipe.available() > 0 && pipeLock.tryLock()) {
+                    try {
+                        // Drain all available messages while we hold the lock
+                        while (pipe.available() > 0) {
+                            byte[] data = pipe.readMessage();
+                            Map<String, Object> msg = MessagePackCodec.decode(data);
+                            if (msg.containsKey("event")) {
+                                dispatchEventAsync(msg);
+                            }
+                            // Non-event messages with no pending doCall — discard
+                        }
+                    } finally {
+                        pipeLock.unlock();
+                    }
+                } else {
+                    Thread.sleep(1);
+                }
+            } catch (PipeException e) {
+                if (running) {
+                    running = false;
+                }
+                break;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                if (running) {
+                    System.err.println("[RpcClient] Reader error: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends the request, then reads messages until the response with the
+     * matching ID arrives. Events received in between are dispatched on
+     * virtual threads. Holds the pipe lock for the entire duration.
+     */
+    private Map<String, Object> doCall(String method, Map<String, Object> params) {
         int id = idCounter.getAndIncrement();
 
         Map<String, Object> request = new LinkedHashMap<>();
@@ -96,17 +178,18 @@ public class RpcClient implements AutoCloseable {
             request.put("params", params);
         }
 
+        pipeLock.lock();
         try {
             pipe.send(MessagePackCodec.encode(request));
 
             // Read messages until we get the response matching our request ID.
-            // Any event messages that arrive first are dispatched inline.
+            // Any event messages that arrive first are dispatched asynchronously.
             while (true) {
                 byte[] responseBytes = pipe.readMessage();
                 Map<String, Object> msg = MessagePackCodec.decode(responseBytes);
 
                 if (msg.containsKey("event")) {
-                    dispatchEvent(msg);
+                    dispatchEventAsync(msg);
                     continue;
                 }
 
@@ -120,6 +203,8 @@ public class RpcClient implements AutoCloseable {
             throw e;
         } catch (Exception e) {
             throw new RpcException("RPC call failed: " + method, e);
+        } finally {
+            pipeLock.unlock();
         }
     }
 
@@ -129,10 +214,16 @@ public class RpcClient implements AutoCloseable {
         return false;
     }
 
-    private void dispatchEvent(Map<String, Object> msg) {
+    private void dispatchEventAsync(Map<String, Object> msg) {
         Consumer<Map<String, Object>> handler = this.eventHandler;
         if (handler != null) {
-            handler.accept(msg);
+            String connName = this.connectionName;
+            Thread.startVirtualThread(() -> {
+                if (connName != null) {
+                    ConnectionContext.set(connName);
+                }
+                handler.accept(msg);
+            });
         }
     }
 }

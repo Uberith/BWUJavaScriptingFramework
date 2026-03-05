@@ -40,6 +40,7 @@ public class CliContext {
     private final LogCapture logCapture;
     private final Map<String, Connection> connections = new LinkedHashMap<>();
     private String activeConnectionName;
+    private String mountedConnectionName;
     private ImageDisplay imageDisplay;
     private ProgressDisplay progressDisplay;
 
@@ -57,6 +58,7 @@ public class CliContext {
         try {
             PipeClient pipe = pipeName != null ? new PipeClient(pipeName) : new PipeClient();
             RpcClient rpc = new RpcClient(pipe);
+            rpc.setConnectionName(connName);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             GameAPIImpl gameAPI = new GameAPIImpl(rpc);
@@ -65,8 +67,10 @@ public class CliContext {
             var dispatcher = new com.botwithus.bot.core.impl.EventDispatcher(eventBus);
             dispatcher.bindAutoSubscription(gameAPI);
             rpc.setEventHandler(dispatcher::dispatch);
+            rpc.start();
 
             ScriptRuntime runtime = new ScriptRuntime(context);
+            runtime.setConnectionName(connName);
             Connection conn = new Connection(connName, pipe, rpc, runtime);
             connections.put(connName, conn);
             activeConnectionName = connName;
@@ -89,6 +93,10 @@ public class CliContext {
         if (conn.hasRunningScripts() && !force) {
             out().println("Connection '" + target + "' has running scripts. Use 'disconnect --force' to stop them and disconnect.");
             return;
+        }
+        if (target.equals(mountedConnectionName)) {
+            unmount();
+            out().println("Auto-unmounted — mounted connection was disconnected.");
         }
         connections.remove(target);
         conn.close();
@@ -143,6 +151,10 @@ public class CliContext {
      * available connection (or clears the active view).
      */
     public void handleConnectionError(String connName) {
+        if (connName.equals(mountedConnectionName)) {
+            unmount();
+            out().println("Auto-unmounted — mounted connection was lost.");
+        }
         Connection conn = connections.remove(connName);
         if (conn != null) {
             conn.close();
@@ -176,4 +188,17 @@ public class CliContext {
 
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
+
+    public void mount(String connectionName) {
+        this.mountedConnectionName = connectionName;
+        logCapture.setConnectionFilter(name -> name.equals(connectionName));
+    }
+
+    public void unmount() {
+        this.mountedConnectionName = null;
+        logCapture.setConnectionFilter(null);
+    }
+
+    public boolean isMounted() { return mountedConnectionName != null; }
+    public String getMountedConnectionName() { return mountedConnectionName; }
 }

@@ -31,6 +31,7 @@ public class JBotApplication {
             EventDispatcher dispatcher = new EventDispatcher(eventBus);
             dispatcher.bindAutoSubscription(gameAPI);
             rpc.setEventHandler(dispatcher::dispatch);
+            rpc.start();
 
             // Discover scripts from scripts/ directory (drop JARs there)
             List<BotScript> scripts = ScriptLoader.loadScripts();

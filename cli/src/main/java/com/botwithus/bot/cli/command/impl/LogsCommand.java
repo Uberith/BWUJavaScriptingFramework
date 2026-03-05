@@ -34,9 +34,17 @@ public class LogsCommand implements Command {
                     .filter(e -> e.source().equalsIgnoreCase(filter) || e.message().contains(filter))
                     .toList();
         }
+        // When mounted, only show entries from that connection (or system entries with null connection)
+        if (ctx.isMounted()) {
+            String mounted = ctx.getMountedConnectionName();
+            entries = entries.stream()
+                    .filter(e -> e.connection() == null || mounted.equals(e.connection()))
+                    .toList();
+        }
 
+        boolean showConnection = !ctx.isMounted();
         for (LogEntry entry : entries) {
-            ctx.out().println(formatEntry(entry));
+            ctx.out().println(formatEntry(entry, showConnection));
         }
 
         if (follow) {
@@ -55,7 +63,7 @@ public class LogsCommand implements Command {
                                     .toList();
                         }
                         for (LogEntry entry : newEntries) {
-                            ctx.out().println(formatEntry(entry));
+                            ctx.out().println(formatEntry(entry, !ctx.isMounted()));
                         }
                         if (!newEntries.isEmpty()) {
                             lastCheck[0] = Instant.now();
@@ -70,11 +78,16 @@ public class LogsCommand implements Command {
         }
     }
 
-    private String formatEntry(LogEntry entry) {
+    private String formatEntry(LogEntry entry, boolean showConnection) {
         String time = TIME_FMT.format(entry.timestamp());
         String levelColor = "ERROR".equals(entry.level()) ? AnsiCodes.RED : AnsiCodes.CYAN;
+        String connPrefix = "";
+        if (showConnection && entry.connection() != null) {
+            connPrefix = AnsiCodes.colorize("[" + entry.connection() + "]", AnsiCodes.MAGENTA) + " ";
+        }
         return AnsiCodes.dim(time) + " "
                 + AnsiCodes.colorize(entry.level(), levelColor) + " "
+                + connPrefix
                 + AnsiCodes.colorize("[" + entry.source() + "]", AnsiCodes.YELLOW) + " "
                 + entry.message();
     }

@@ -30,7 +30,7 @@ public class InputPanel extends JPanel {
 
         promptLabel = new JLabel();
         promptLabel.setFont(GuiTheme.monoFont(14));
-        updatePrompt(null, false, 0);
+        updatePrompt(null, false, 0, null);
 
         inputField = new JTextField();
         inputField.setFont(GuiTheme.monoFont(14));
@@ -95,12 +95,18 @@ public class InputPanel extends JPanel {
     }
 
     public void updatePrompt(String connName, boolean connected, int count) {
+        updatePrompt(connName, connected, count, null);
+    }
+
+    public void updatePrompt(String connName, boolean connected, int count, String mountedConnection) {
         String html;
         if (connected && connName != null) {
             String suffix = count > 1 ? " [" + count + "]" : "";
+            String mountIndicator = mountedConnection != null
+                    ? " <font color='#c084fc'>[mounted]</font>" : "";
             html = String.format(
-                    "<html><font color='#4ade80'>*</font> <b>jbot</b>:<font color='#67e8f9'>%s</font>%s&gt; </html>",
-                    escapeHtml(connName), suffix
+                    "<html><font color='#4ade80'>*</font> <b>jbot</b>:<font color='#67e8f9'>%s</font>%s%s&gt; </html>",
+                    escapeHtml(connName), suffix, mountIndicator
             );
         } else {
             html = "<html><font color='#f87171'>o</font> <b>jbot</b>&gt; </html>";
