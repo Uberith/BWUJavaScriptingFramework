@@ -10,6 +10,7 @@ import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.log.LocalLogManager;
 
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
@@ -120,9 +121,14 @@ public class ImGuiApp extends Application {
 
         textureManager = new TextureManager();
         outputBuffer = new AnsiOutputBuffer();
+        LocalLogManager logManager = LocalLogManager.install("jbot-gui");
 
         PrintStream guiOut = outputBuffer.getPrintStream();
         PrintStream guiErr = outputBuffer.getPrintStream();
+        if (logManager != null) {
+            guiOut = logManager.wrapStdout(guiOut);
+            guiErr = logManager.wrapStderr(guiErr);
+        }
 
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
@@ -367,6 +373,7 @@ public class ImGuiApp extends Application {
     }
 
     public static void main(String[] args) {
+        LocalLogManager.install("jbot-gui");
         launch(new ImGuiApp());
     }
 }
