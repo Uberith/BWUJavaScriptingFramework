@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.blueprint.BlueprintGraph;
 
 import org.slf4j.Logger;
@@ -34,15 +35,27 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class CliContext {
 
     private static final Logger log = LoggerFactory.getLogger(CliContext.class);
+
+    public record DiscoveredScript(
+            String name,
+            String author,
+            String version,
+            String description,
+            String className,
+            String source
+    ) {}
 
     @FunctionalInterface
     public interface ImageDisplay {
@@ -75,6 +88,8 @@ public class CliContext {
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
     private com.botwithus.bot.core.runtime.ManagementScriptRuntime managementRuntime;
+    private volatile List<DiscoveredScript> discoveredScripts = List.of();
+    private volatile List<DiscoveredScript> discoveredBlueprints = List.of();
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
@@ -126,6 +141,8 @@ public class CliContext {
             out().println("Already connected to '" + connName + "'. Use 'use " + connName + "' to switch.");
             return;
         }
+        log.info("Connecting to '{}'. Existing connections={}, discoveredScripts={}, discoveredBlueprints={}",
+                connName, connections.size(), discoveredScripts.size(), discoveredBlueprints.size());
         try {
             PipeClient pipe = pipeName != null ? new PipeClient(pipeName) : new PipeClient();
             RpcClient rpc = new RpcClient(pipe);
@@ -153,11 +170,17 @@ public class CliContext {
             conn.setEventBus(eventBus);
             connections.put(connName, conn);
             activeConnectionName = connName;
+            log.info("Connection '{}' created. PipeOpen={}, runtimeRunnersBeforeAttach={}",
+                    connName, conn.isAlive(), runtime.getRunners().size());
+            int attached = registerAvailableScripts(conn);
+            log.info("Connection '{}' attach pass completed. AttachedNow={}, runtimeRunnersAfterAttach={}",
+                    connName, attached, runtime.getRunners().size());
             out().println("Connected to pipe: " + pipe.getPipePath());
             if (connections.size() > 1) {
                 out().println("Active connection set to '" + connName + "'.");
             }
         } catch (Exception e) {
+            log.error("Connection failed for '{}': {}", connName, e.getMessage(), e);
             out().println("Connection failed: " + e.getMessage());
         }
     }
@@ -230,7 +253,12 @@ public class CliContext {
     }
 
     public List<BotScript> loadScripts() {
-        return SDNScriptLoader.loadScripts();
+        List<BotScript> scripts = SDNScriptLoader.loadScripts();
+        discoveredScripts = describeScripts(scripts, "Script");
+        log.info("loadScripts discovered {} local script(s): {}",
+                scripts.size(),
+                discoveredScripts.stream().map(DiscoveredScript::name).toList());
+        return scripts;
     }
 
     /**
@@ -239,18 +267,41 @@ public class CliContext {
      */
     public List<BotScript> loadBlueprints() {
         Path dir = Path.of("scripts", "blueprints");
-        if (!Files.isDirectory(dir)) return List.of();
+        if (!Files.isDirectory(dir)) {
+            discoveredBlueprints = List.of();
+            return List.of();
+        }
         try {
             List<BlueprintGraph> graphs = BlueprintSerializer.loadAllFromDirectory(dir);
             List<BotScript> scripts = new ArrayList<>();
             for (BlueprintGraph graph : graphs) {
                 scripts.add(new BlueprintBotScript(graph));
             }
+            discoveredBlueprints = describeScripts(scripts, "Blueprint");
+            log.info("loadBlueprints discovered {} blueprint script(s): {}",
+                    scripts.size(),
+                    discoveredBlueprints.stream().map(DiscoveredScript::name).toList());
             return scripts;
         } catch (Exception e) {
+            discoveredBlueprints = List.of();
             log.error("Failed to load blueprints", e);
             return List.of();
         }
+    }
+
+    public List<DiscoveredScript> getDiscoveredScripts() {
+        return discoveredScripts;
+    }
+
+    public List<DiscoveredScript> getDiscoveredBlueprints() {
+        return discoveredBlueprints;
+    }
+
+    public List<DiscoveredScript> getAllDiscoveredScripts() {
+        List<DiscoveredScript> all = new ArrayList<>(discoveredScripts);
+        all.addAll(discoveredBlueprints);
+        all.sort(Comparator.comparing(DiscoveredScript::name, String.CASE_INSENSITIVE_ORDER));
+        return List.copyOf(all);
     }
 
     /**
@@ -456,5 +507,106 @@ public class CliContext {
 
     public boolean isWatcherRunning() {
         return scriptWatcher != null && scriptWatcher.isRunning();
+    }
+
+    public int registerAvailableScripts(Connection conn) {
+        if (conn == null || !conn.isAlive()) {
+            log.warn("registerAvailableScripts skipped: connection missing or not alive.");
+            return 0;
+        }
+
+        ScriptRuntime runtime = conn.getRuntime();
+        log.info("registerAvailableScripts starting for '{}'. Existing runners={}",
+                conn.getName(), runtime.getRunners().stream().map(ScriptRunner::getScriptName).toList());
+
+        try {
+            List<BotScript> scripts = loadScripts();
+            List<BotScript> blueprints = loadBlueprints();
+            Set<String> existingNames = new HashSet<>();
+            for (ScriptRunner runner : runtime.getRunners()) {
+                existingNames.add(runner.getScriptName());
+            }
+
+            int added = 0;
+            int discoveredCount = scripts.size() + blueprints.size();
+            log.info("registerAvailableScripts '{}' discovered {} script(s) total. Existing names={}",
+                    conn.getName(), discoveredCount, existingNames);
+            for (BotScript script : scripts) {
+                String scriptName = getScriptDisplayName(script);
+                if (existingNames.add(scriptName)) {
+                    log.info("Attaching script '{}' ({}) to '{}'.",
+                            scriptName, script.getClass().getName(), conn.getName());
+                    runtime.registerScript(script);
+                    added++;
+                } else {
+                    log.info("Skipping already-registered script '{}' on '{}'.", scriptName, conn.getName());
+                }
+            }
+            for (BotScript blueprint : blueprints) {
+                String scriptName = getScriptDisplayName(blueprint);
+                if (existingNames.add(scriptName)) {
+                    log.info("Attaching blueprint '{}' ({}) to '{}'.",
+                            scriptName, blueprint.getClass().getName(), conn.getName());
+                    runtime.registerScript(blueprint);
+                    added++;
+                } else {
+                    log.info("Skipping already-registered blueprint '{}' on '{}'.", scriptName, conn.getName());
+                }
+            }
+
+            if (added > 0) {
+                log.info("Registered {} script(s) on '{}'.", added, conn.getName());
+                out().println("Registered " + added + " script(s) on '" + conn.getName() + "'.");
+            } else {
+                log.warn("registerAvailableScripts '{}' attached 0 script(s). Runtime runners now={}",
+                        conn.getName(), runtime.getRunners().stream().map(ScriptRunner::getScriptName).toList());
+            }
+            return added;
+        } catch (Exception e) {
+            log.error("Failed to register scripts on connect for {}", conn.getName(), e);
+            out().println("Failed to register scripts on '" + conn.getName() + "': " + e.getMessage());
+            return 0;
+        }
+    }
+
+    private static List<DiscoveredScript> describeScripts(List<BotScript> scripts, String source) {
+        List<DiscoveredScript> discovered = new ArrayList<>();
+        for (BotScript script : scripts) {
+            String name = getScriptDisplayName(script);
+            String author;
+            String version;
+            String description;
+
+            if (script instanceof BlueprintBotScript blueprint) {
+                var metadata = blueprint.getMetadata();
+                author = metadata.author() != null && !metadata.author().isBlank() ? metadata.author() : "-";
+                version = metadata.version() != null && !metadata.version().isBlank() ? metadata.version() : "?";
+                description = metadata.description() != null ? metadata.description() : "";
+            } else {
+                ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
+                author = manifest != null && !manifest.author().isBlank() ? manifest.author() : "-";
+                version = manifest != null && !manifest.version().isBlank() ? manifest.version() : "?";
+                description = manifest != null ? manifest.description() : "";
+            }
+
+            discovered.add(new DiscoveredScript(
+                    name,
+                    author,
+                    version,
+                    description,
+                    script.getClass().getName(),
+                    source
+            ));
+        }
+        discovered.sort(Comparator.comparing(DiscoveredScript::name, String.CASE_INSENSITIVE_ORDER));
+        return List.copyOf(discovered);
+    }
+
+    private static String getScriptDisplayName(BotScript script) {
+        if (script instanceof BlueprintBotScript blueprint) {
+            return blueprint.getMetadata().name();
+        }
+        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
+        return manifest != null ? manifest.name() : script.getClass().getSimpleName();
     }
 }

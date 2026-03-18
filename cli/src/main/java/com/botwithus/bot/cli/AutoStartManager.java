@@ -71,10 +71,11 @@ public class AutoStartManager {
             return;
         }
 
-        // Load available scripts and start matching ones
         ScriptRuntime runtime = conn.getRuntime();
-        List<BotScript> available = ctx.loadScripts();
-        List<BotScript> blueprints = ctx.loadBlueprints();
+        ctx.registerAvailableScripts(conn);
+
+        List<BotScript> available = null;
+        List<BotScript> blueprints = null;
 
         int started = 0;
         for (String targetName : scriptNames) {
@@ -89,6 +90,11 @@ public class AutoStartManager {
             }
 
             // Find in available scripts
+            if (available == null) {
+                available = ctx.loadScripts();
+                blueprints = ctx.loadBlueprints();
+            }
+
             BotScript match = findScript(targetName, available);
             if (match == null) {
                 match = findScript(targetName, blueprints);

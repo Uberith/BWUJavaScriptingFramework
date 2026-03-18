@@ -7,6 +7,8 @@ import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import imgui.ImGui;
 import imgui.flag.ImGuiTableFlags;
@@ -16,6 +18,8 @@ import imgui.type.ImInt;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -23,9 +27,11 @@ import java.util.concurrent.ExecutorService;
  */
 public class ScriptsPanel implements GuiPanel {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptsPanel.class);
     private final ExecutorService executor;
     private final ImBoolean autoStartOnReload = new ImBoolean(false);
     private final ImInt selectedConnection = new ImInt(0);
+    private final Set<String> attachInFlight = ConcurrentHashMap.newKeySet();
 
     public ScriptsPanel(ExecutorService executor) {
         this.executor = executor;
@@ -66,9 +72,17 @@ public class ScriptsPanel implements GuiPanel {
 
         // Connection selector if multiple connections
         var connections = new ArrayList<>(ctx.getConnections());
+        List<CliContext.DiscoveredScript> discoveredScripts = ctx.getAllDiscoveredScripts();
         if (connections.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "No active connections. Connect first via the Connections tab.");
+            if (discoveredScripts.isEmpty()) {
+                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                        "No active connections. Reload scripts to discover them, then connect to register them.");
+            } else {
+                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                        "No active connections. These scripts were discovered from disk but are not attached yet.");
+                ImGui.spacing();
+                renderDiscoveredScriptsTable(discoveredScripts);
+            }
             return;
         }
 
@@ -92,9 +106,35 @@ public class ScriptsPanel implements GuiPanel {
         List<ScriptRunner> runners = new ArrayList<>(runtime.getRunners());
         runners.sort(Comparator.comparing(ScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
 
+        if (conn.isAlive() && !discoveredScripts.isEmpty() && runners.isEmpty()) {
+            String connName = conn.getName();
+            if (attachInFlight.add(connName)) {
+                log.info("ScriptsPanel scheduling auto-attach for '{}'. DiscoveredScripts={}, currentRunners=0",
+                        connName, discoveredScripts.stream().map(CliContext.DiscoveredScript::name).toList());
+                executor.submit(() -> {
+                    try {
+                        int attached = ctx.registerAvailableScripts(conn);
+                        log.info("ScriptsPanel auto-attach finished for '{}'. AttachedNow={}, runtimeRunnersAfterAttach={}",
+                                connName, attached, conn.getRuntime().getRunners().stream().map(ScriptRunner::getScriptName).toList());
+                    } finally {
+                        attachInFlight.remove(connName);
+                    }
+                });
+            }
+        }
+
         if (runners.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "No scripts loaded on " + conn.getName() + ". Click 'Reload Scripts' to discover scripts.");
+            if (discoveredScripts.isEmpty()) {
+                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                        "No scripts loaded on " + conn.getName() + ". Click 'Reload Scripts' to discover scripts.");
+            } else {
+                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                        "No scripts are currently registered on " + conn.getName() + ".");
+                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                        "Discovered scripts are listed below. Attaching them to this connection now.");
+                ImGui.spacing();
+                renderDiscoveredScriptsTable(discoveredScripts);
+            }
             return;
         }
 
@@ -182,27 +222,95 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private void reloadScripts(CliContext ctx, boolean autoStart) {
-        List<BotScript> scripts = ctx.loadScripts();
-        List<BotScript> blueprints = ctx.loadBlueprints();
+        try {
+            log.info("ScriptsPanel reload requested. autoStart={}, connections={}",
+                    autoStart, ctx.getConnections().stream().map(Connection::getName).toList());
+            List<BotScript> scripts = ctx.loadScripts();
+            List<BotScript> blueprints = ctx.loadBlueprints();
+            int discoveredCount = scripts.size() + blueprints.size();
+            log.info("ScriptsPanel reload discovered {} script(s): local={}, blueprints={}",
+                    discoveredCount, scripts.size(), blueprints.size());
 
-        for (Connection conn : ctx.getConnections()) {
-            if (!conn.isAlive()) continue;
-            ScriptRuntime runtime = conn.getRuntime();
-            runtime.stopAll();
-            for (BotScript script : scripts) {
-                runtime.registerScript(script);
-            }
-            for (BotScript bp : blueprints) {
-                runtime.registerScript(bp);
-            }
-            ctx.out().println("Reloaded " + (scripts.size() + blueprints.size()) + " script(s) on " + conn.getName());
+            List<Connection> liveConnections = ctx.getConnections().stream()
+                    .filter(Connection::isAlive)
+                    .toList();
 
-            if (autoStart) {
-                for (ScriptRunner runner : runtime.getRunners()) {
-                    runner.start();
+            if (liveConnections.isEmpty()) {
+                log.warn("ScriptsPanel reload found no live connections. Discovered {} script(s) but attached none.",
+                        discoveredCount);
+                ctx.out().println("Discovered " + discoveredCount
+                        + " script(s), but there is no live connection to register them on yet.");
+                return;
+            }
+
+            for (Connection conn : liveConnections) {
+                ScriptRuntime runtime = conn.getRuntime();
+                log.info("Reloading scripts on '{}'. RunnersBeforeStop={}",
+                        conn.getName(), runtime.getRunners().stream().map(ScriptRunner::getScriptName).toList());
+                runtime.stopAll();
+                log.info("Runtime '{}' cleared. RunnersAfterStop={}", conn.getName(), runtime.getRunners().size());
+                for (BotScript script : scripts) {
+                    log.info("Reload attaching script '{}' ({}) to '{}'.",
+                            getScriptName(script), script.getClass().getName(), conn.getName());
+                    runtime.registerScript(script);
                 }
-                ctx.out().println("Auto-started all scripts on " + conn.getName());
+                for (BotScript bp : blueprints) {
+                    log.info("Reload attaching blueprint '{}' ({}) to '{}'.",
+                            getScriptName(bp), bp.getClass().getName(), conn.getName());
+                    runtime.registerScript(bp);
+                }
+                log.info("Reload complete on '{}'. Runtime runners now={}",
+                        conn.getName(), runtime.getRunners().stream().map(ScriptRunner::getScriptName).toList());
+                ctx.out().println("Reloaded " + discoveredCount + " script(s) on " + conn.getName());
+
+                if (autoStart) {
+                    for (ScriptRunner runner : runtime.getRunners()) {
+                        runner.start();
+                    }
+                    ctx.out().println("Auto-started all scripts on " + conn.getName());
+                }
             }
+        } catch (Exception e) {
+            log.error("ScriptsPanel reload failed: {}", e.getMessage(), e);
+            ctx.err().println("Script reload failed: " + e.getMessage());
         }
+    }
+
+    private void renderDiscoveredScriptsTable(List<CliContext.DiscoveredScript> scripts) {
+        int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
+        if (ImGui.beginTable("discoveredScriptsTable", 5, flags)) {
+            ImGui.tableSetupColumn("Name", 0, 1.5f);
+            ImGui.tableSetupColumn("Author", 0, 0.8f);
+            ImGui.tableSetupColumn("Version", 0, 0.5f);
+            ImGui.tableSetupColumn("Source", 0, 0.6f);
+            ImGui.tableSetupColumn("Class", 0, 2.2f);
+            ImGui.tableHeadersRow();
+
+            for (CliContext.DiscoveredScript script : scripts) {
+                ImGui.tableNextRow();
+
+                ImGui.tableSetColumnIndex(0);
+                ImGui.text(script.name());
+
+                ImGui.tableSetColumnIndex(1);
+                ImGui.text(script.author());
+
+                ImGui.tableSetColumnIndex(2);
+                ImGui.text(script.version());
+
+                ImGui.tableSetColumnIndex(3);
+                ImGui.text(script.source());
+
+                ImGui.tableSetColumnIndex(4);
+                ImGui.text(script.className());
+            }
+
+            ImGui.endTable();
+        }
+    }
+
+    private static String getScriptName(BotScript script) {
+        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
+        return manifest != null ? manifest.name() : script.getClass().getSimpleName();
     }
 }
