@@ -18,27 +18,27 @@ import java.util.Map;
  * CLI command for the ClientManager.
  *
  * <pre>
- * client list                                  — list connected clients
- * client status                                — script status across all clients
- * client status --group=<name>                 — script status for a group
- * client group create <name> [description]     — create a group with optional description
- * client group delete <name>                   — delete a group
- * client group add <group> <client>            — add client to group
- * client group remove <group> <client>         — remove client from group
- * client group list                            — list all groups
- * client group info <name>                     — detailed group info
- * client group describe <name> <description>   — set group description
- * client start <script> --on=<client>          — start script on specific client
- * client start <script> --group=<group>        — start script on group
- * client start <script> --all                  — start script on all clients
- * client stop <script> --on=<client>           — stop script on specific client
- * client stop <script> --group=<group>         — stop script on group
- * client stop <script> --all                   — stop script on all clients
- * client restart <script> --on=<client>        — restart script on specific client
- * client restart <script> --group=<group>      — restart script on group
- * client restart <script> --all                — restart script on all clients
- * client stopall --group=<group>               — stop all scripts on group
- * client stopall --all                         — stop all scripts on all clients
+ * client list                                  - list connected clients
+ * client status                                - script status across all clients
+ * client status --group=&lt;name&gt;                 - script status for a group
+ * client group create &lt;name&gt; [description]     - create a group with optional description
+ * client group delete &lt;name&gt;                   - delete a group
+ * client group add &lt;group&gt; &lt;client&gt;            - add client to group
+ * client group remove &lt;group&gt; &lt;client&gt;         - remove client from group
+ * client group list                            - list all groups
+ * client group info &lt;name&gt;                     - detailed group info
+ * client group describe &lt;name&gt; &lt;description&gt;   - set group description
+ * client start &lt;script&gt; --on=&lt;client&gt;          - start script on specific client
+ * client start &lt;script&gt; --group=&lt;group&gt;        - start script on group
+ * client start &lt;script&gt; --all                  - start script on all clients
+ * client stop &lt;script&gt; --on=&lt;client&gt;           - stop script on specific client
+ * client stop &lt;script&gt; --group=&lt;group&gt;         - stop script on group
+ * client stop &lt;script&gt; --all                   - stop script on all clients
+ * client restart &lt;script&gt; --on=&lt;client&gt;        - restart script on specific client
+ * client restart &lt;script&gt; --group=&lt;group&gt;      - restart script on group
+ * client restart &lt;script&gt; --all                - restart script on all clients
+ * client stopall --group=&lt;group&gt;               - stop all scripts on group
+ * client stopall --all                         - stop all scripts on all clients
  * </pre>
  */
 public class ClientCommand implements Command {
@@ -74,7 +74,7 @@ public class ClientCommand implements Command {
         }
     }
 
-    // ── list ─────────────────────────────────────────────────────────────────
+    // list
 
     private void listClients(ClientManager mgr, CliContext ctx) {
         var clients = mgr.getClients();
@@ -96,7 +96,7 @@ public class ClientCommand implements Command {
         ctx.out().print(table.build());
     }
 
-    // ── status ───────────────────────────────────────────────────────────────
+    // status
 
     private void status(ParsedCommand parsed, ClientManager mgr, CliContext ctx) {
         String groupName = parsed.flag("group");
@@ -126,7 +126,7 @@ public class ClientCommand implements Command {
         ctx.out().print(table.build());
     }
 
-    // ── group subcommands ────────────────────────────────────────────────────
+    // group subcommands
 
     private void groupSub(ParsedCommand parsed, ClientManager mgr, CliContext ctx) {
         String sub = parsed.arg(1);
@@ -157,7 +157,6 @@ public class ClientCommand implements Command {
             ctx.out().println("Group '" + name + "' already exists.");
             return;
         }
-        // Everything after the group name is the description
         String desc = buildRemainingArgs(parsed, 3);
         mgr.createGroup(name, desc.isEmpty() ? null : desc);
         ctx.out().println("Group '" + name + "' created."
@@ -251,7 +250,6 @@ public class ClientCommand implements Command {
             ctx.out().println("    " + memberName + " [" + status + "]");
         }
 
-        // Show scripts running on group members
         List<ScriptStatusEntry> statuses = mgr.getStatusForGroup(name);
         if (!statuses.isEmpty()) {
             ctx.out().println("  Scripts:");
@@ -284,7 +282,7 @@ public class ClientCommand implements Command {
         ctx.out().println("Group '" + name + "' description set to: " + desc);
     }
 
-    // ── script actions (start/stop/restart) ──────────────────────────────────
+    // script actions
 
     private void scriptAction(ParsedCommand parsed, ClientManager mgr, CliContext ctx, String action) {
         String scriptName = parsed.arg(1);
@@ -298,7 +296,6 @@ public class ClientCommand implements Command {
         boolean all = parsed.hasFlag("all");
 
         if (clientName != null) {
-            // Single client
             OpResult r = switch (action) {
                 case "start" -> mgr.startScript(clientName, scriptName);
                 case "stop" -> mgr.stopScript(clientName, scriptName);
@@ -307,7 +304,6 @@ public class ClientCommand implements Command {
             };
             printResult(r, ctx);
         } else if (groupName != null) {
-            // Group
             List<OpResult> results = switch (action) {
                 case "start" -> mgr.startScriptOnGroup(groupName, scriptName);
                 case "stop" -> mgr.stopScriptOnGroup(groupName, scriptName);
@@ -316,7 +312,6 @@ public class ClientCommand implements Command {
             };
             printResults(results, ctx);
         } else if (all) {
-            // All clients
             List<OpResult> results = switch (action) {
                 case "start" -> mgr.startScriptOnAll(scriptName);
                 case "stop" -> mgr.stopScriptOnAll(scriptName);
@@ -329,7 +324,7 @@ public class ClientCommand implements Command {
         }
     }
 
-    // ── stopall ──────────────────────────────────────────────────────────────
+    // stopall
 
     private void stopAll(ParsedCommand parsed, ClientManager mgr, CliContext ctx) {
         String groupName = parsed.flag("group");
@@ -346,7 +341,7 @@ public class ClientCommand implements Command {
         }
     }
 
-    // ── output helpers ───────────────────────────────────────────────────────
+    // output helpers
 
     private void printResult(OpResult r, CliContext ctx) {
         if (r.success()) {
@@ -368,8 +363,12 @@ public class ClientCommand implements Command {
         StringBuilder sb = new StringBuilder();
         for (int i = startIndex; ; i++) {
             String arg = parsed.arg(i);
-            if (arg == null) break;
-            if (!sb.isEmpty()) sb.append(' ');
+            if (arg == null) {
+                break;
+            }
+            if (!sb.isEmpty()) {
+                sb.append(' ');
+            }
             sb.append(arg);
         }
         return sb.toString();

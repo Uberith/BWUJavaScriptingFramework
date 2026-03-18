@@ -4,6 +4,10 @@ import java.util.Map;
 
 /**
  * Structured result from a command execution that UI panels can consume.
+ *
+ * @param success whether the command succeeded
+ * @param message optional human-readable message
+ * @param data optional structured payload for UI consumers
  */
 public record CommandResult(boolean success, String message, Map<String, Object> data) {
 

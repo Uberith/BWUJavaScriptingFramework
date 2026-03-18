@@ -42,6 +42,23 @@ tasks.named<JavaExec>("run") {
     jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
 }
 
+tasks.javadoc {
+    title = "cli $version API"
+
+    (options as StandardJavadocDocletOptions).apply {
+        addBooleanOption("html5", true)
+        addStringOption("Xdoclint:none", "-quiet")
+        encoding = "UTF-8"
+        charSet = "UTF-8"
+        memberLevel = JavadocMemberLevel.PUBLIC
+        tags("apiNote:a:API Note:")
+        links("https://docs.oracle.com/en/java/javase/21/docs/api/")
+    }
+
+    // Keep CLI builds from failing on incidental doc issues.
+    isFailOnError = false
+}
+
 jlink {
     val jlinkHome = providers.gradleProperty("jlink.javaHome")
         .orElse(providers.environmentVariable("JLINK_JAVA_HOME"))
