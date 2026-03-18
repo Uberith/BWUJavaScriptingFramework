@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file gives Claude Code repo-specific guidance for working in this repository.
+This file gives coding agents repo-specific guidance for working in this repository.
 
 ## Repo Snapshot
 

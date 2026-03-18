@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.command.impl.*;
 import com.botwithus.bot.cli.log.LogBuffer;
+import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 
@@ -35,6 +36,7 @@ public class JBotCli {
         System.setErr(utf8Err);
 
         LogBuffer logBuffer = new LogBuffer();
+        LogBufferAppender.setLogBuffer(logBuffer);
         LogCapture logCapture = new LogCapture(logBuffer);
         logCapture.install();
 
