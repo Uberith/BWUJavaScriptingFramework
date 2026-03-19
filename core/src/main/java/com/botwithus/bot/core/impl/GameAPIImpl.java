@@ -845,6 +845,312 @@ public class GameAPIImpl implements GameAPI {
         return getInt(r, "size");
     }
 
+    // ========================== Navigation & Pathfinding ==========================
+
+    @Override
+    public void walkToAsync(int x, int y) {
+        rpc.callSync("walk_to", Map.of("x", x, "y", y));
+    }
+
+    @Override
+    public void walkWorldPathAsync(int x, int y, int plane) {
+        walkWorldPathAsync(x, y, plane, false, null);
+    }
+
+    @Override
+    public void walkWorldPathAsync(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("x", x);
+        params.put("y", y);
+        if (plane != 0) params.put("plane", plane);
+        if (exactDestTile) params.put("exact_dest_tile", true);
+        if (config != null && config != WorldPathConfig.DEFAULT) {
+            Map<String, Object> cfg = new LinkedHashMap<>();
+            if (config.agilityLevel() > 1) cfg.put("agility_level", config.agilityLevel());
+            if (config.maxIterations() != 500_000) cfg.put("max_iterations", config.maxIterations());
+            if (!config.allowDoors()) cfg.put("allow_doors", false);
+            if (!config.allowShortcuts()) cfg.put("allow_shortcuts", false);
+            if (!config.allowPlaneTransitions()) cfg.put("allow_plane_transitions", false);
+            if (!config.allowClimbovers()) cfg.put("allow_climbovers", false);
+            if (!config.allowTransports()) cfg.put("allow_transports", false);
+            if (!config.allowTeleports()) cfg.put("allow_teleports", false);
+            if (config.doorCost() != 5.0f) cfg.put("door_cost", config.doorCost());
+            if (config.transitionCost() != 10.0f) cfg.put("transition_cost", config.transitionCost());
+            if (config.shortcutCost() != 3.0f) cfg.put("shortcut_cost", config.shortcutCost());
+            if (config.climboverCost() != 3.0f) cfg.put("climbover_cost", config.climboverCost());
+            if (config.transportCost() != 15.0f) cfg.put("transport_cost", config.transportCost());
+            if (config.globalTeleportMinHeuristic() != 100.0f) cfg.put("global_teleport_min_heuristic", config.globalTeleportMinHeuristic());
+            if (config.heuristicWeight() != 1.0f) cfg.put("heuristic_weight", config.heuristicWeight());
+            if (!cfg.isEmpty()) params.put("config", cfg);
+        }
+        rpc.callSync("walk_world_path", params);
+    }
+
+    @Override
+    public void walkCancel() {
+        rpc.callSync("walk_cancel", Map.of());
+    }
+
+    @Override
+    public WalkStatus getWalkStatus() {
+        Map<String, Object> r = rpc.callSync("walk_status", Map.of());
+        return new WalkStatus(
+                getString(r, "state"),
+                getInt(r, "target_x"), getInt(r, "target_y"),
+                getInt(r, "current_step"), getInt(r, "total_steps"),
+                getInt(r, "nav_step"), getInt(r, "total_nav_steps"),
+                getBool(r, "is_walking"), getBool(r, "is_done"),
+                getBool(r, "hpa_ready")
+        );
+    }
+
+    @Override
+    public boolean isReachable(int x, int y) {
+        Map<String, Object> r = rpc.callSync("is_reachable", Map.of("x", x, "y", y));
+        return getBool(r, "reachable");
+    }
+
+    @Override
+    public boolean isReachable(int x, int y, int maxIterations) {
+        Map<String, Object> r = rpc.callSync("is_reachable",
+                Map.of("x", x, "y", y, "max_iterations", maxIterations));
+        return getBool(r, "reachable");
+    }
+
+    @Override
+    public PathResult findPath(int toX, int toY) {
+        Map<String, Object> r = rpc.callSync("find_path", Map.of("to_x", toX, "to_y", toY));
+        return mapPathResult(r);
+    }
+
+    @Override
+    public PathResult findPath(int fromX, int fromY, int toX, int toY) {
+        Map<String, Object> r = rpc.callSync("find_path",
+                Map.of("from_x", fromX, "from_y", fromY, "to_x", toX, "to_y", toY));
+        return mapPathResult(r);
+    }
+
+    @Override
+    public PathResult findWorldPath(int toX, int toY) {
+        Map<String, Object> r = rpc.callSync("find_world_path", Map.of("to_x", toX, "to_y", toY));
+        return mapPathResult(r);
+    }
+
+    @Override
+    public PathResult findWorldPath(int fromX, int fromY, int toX, int toY) {
+        Map<String, Object> r = rpc.callSync("find_world_path",
+                Map.of("from_x", fromX, "from_y", fromY, "to_x", toX, "to_y", toY));
+        return mapPathResult(r);
+    }
+
+    @Override
+    public int getRegionCacheSize() {
+        Map<String, Object> r = rpc.callSync("region_cache_info", Map.of());
+        return getInt(r, "cache_size");
+    }
+
+    @Override
+    public void clearRegionCache() {
+        rpc.callSync("region_cache_clear", Map.of());
+    }
+
+    // ========================== Navigation Links & Teleports ==========================
+
+    @Override
+    public void navAddTransport(NavTransport t) {
+        rpc.callSync("nav.add_transport", transportToMap(t));
+    }
+
+    @Override
+    public void navRemoveTransport(int objectId, int x, int y, int plane) {
+        navRemoveLink("nav.remove_transport", objectId, x, y, plane);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<NavTransport> navListTransports() {
+        Map<String, Object> r = rpc.callSync("nav.list_transports", Map.of());
+        List<Map<String, Object>> list = getList(r, "transports");
+        return list.stream().map(m -> new NavTransport(
+                getInt(m, "object_id"), getInt(m, "x"), getInt(m, "y"), getInt(m, "plane"),
+                getInt(m, "shape"), getInt(m, "rotation"), getInt(m, "option_index"),
+                getInt(m, "dest_x"), getInt(m, "dest_y"), getInt(m, "dest_plane")
+        )).toList();
+    }
+
+    @Override
+    public void navAddDoor(NavDoor d) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", d.objectId());
+        params.put("x", d.x());
+        params.put("y", d.y());
+        if (d.plane() != 0) params.put("plane", d.plane());
+        if (d.shape() != 0) params.put("shape", d.shape());
+        if (d.rotation() != 0) params.put("rotation", d.rotation());
+        rpc.callSync("nav.add_door", params);
+    }
+
+    @Override
+    public void navRemoveDoor(int objectId, int x, int y, int plane) {
+        navRemoveLink("nav.remove_door", objectId, x, y, plane);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<NavDoor> navListDoors() {
+        Map<String, Object> r = rpc.callSync("nav.list_doors", Map.of());
+        List<Map<String, Object>> list = getList(r, "doors");
+        return list.stream().map(m -> new NavDoor(
+                getInt(m, "object_id"), getInt(m, "x"), getInt(m, "y"), getInt(m, "plane"),
+                getInt(m, "shape"), getInt(m, "rotation")
+        )).toList();
+    }
+
+    @Override
+    public void navAddShortcut(NavShortcut s) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", s.objectId());
+        params.put("x", s.x());
+        params.put("y", s.y());
+        if (s.plane() != 0) params.put("plane", s.plane());
+        if (s.shape() != 0) params.put("shape", s.shape());
+        if (s.rotation() != 0) params.put("rotation", s.rotation());
+        if (s.agilityLevel() != 1) params.put("agility_level", s.agilityLevel());
+        rpc.callSync("nav.add_shortcut", params);
+    }
+
+    @Override
+    public void navRemoveShortcut(int objectId, int x, int y, int plane) {
+        navRemoveLink("nav.remove_shortcut", objectId, x, y, plane);
+    }
+
+    @Override
+    public void navAddPlaneTransition(NavPlaneTransition t) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", t.objectId());
+        params.put("x", t.x());
+        params.put("y", t.y());
+        if (t.plane() != 0) params.put("plane", t.plane());
+        if (t.shape() != 10) params.put("shape", t.shape());
+        if (t.rotation() != 0) params.put("rotation", t.rotation());
+        if (t.sizeX() != 1) params.put("size_x", t.sizeX());
+        if (t.sizeY() != 1) params.put("size_y", t.sizeY());
+        if (t.destX() >= 0) params.put("dest_x", t.destX());
+        if (t.destY() >= 0) params.put("dest_y", t.destY());
+        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
+        rpc.callSync("nav.add_plane_transition", params);
+    }
+
+    @Override
+    public void navRemovePlaneTransition(int objectId, int x, int y, int plane) {
+        navRemoveLink("nav.remove_plane_transition", objectId, x, y, plane);
+    }
+
+    @Override
+    public void navAddClimbover(NavClimbover c) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", c.objectId());
+        params.put("x", c.x());
+        params.put("y", c.y());
+        if (c.plane() != 0) params.put("plane", c.plane());
+        if (c.shape() != 0) params.put("shape", c.shape());
+        if (c.rotation() != 0) params.put("rotation", c.rotation());
+        rpc.callSync("nav.add_climbover", params);
+    }
+
+    @Override
+    public void navRemoveClimbover(int objectId, int x, int y, int plane) {
+        navRemoveLink("nav.remove_climbover", objectId, x, y, plane);
+    }
+
+    @Override
+    public int navLoadJson(List<NavTransport> links) {
+        List<Map<String, Object>> linkMaps = links.stream().map(this::transportToMap).toList();
+        Map<String, Object> r = rpc.callSync("nav.load_json", Map.of("links", linkMaps));
+        return getInt(r, "added");
+    }
+
+    @Override
+    public void navSaveLinks(String path) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        if (path != null) params.put("path", path);
+        rpc.callSync("nav.save_links", params);
+    }
+
+    @Override
+    public int navLoadLinks(String path) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        if (path != null) params.put("path", path);
+        Map<String, Object> r = rpc.callSync("nav.load_links", params);
+        return getInt(r, "loaded");
+    }
+
+    @Override
+    public NavStats navGetStats() {
+        Map<String, Object> r = rpc.callSync("nav.stats", Map.of());
+        return new NavStats(
+                getInt(r, "regions"), getInt(r, "doors"), getInt(r, "shortcuts"),
+                getInt(r, "plane_transitions"), getInt(r, "climbovers"), getInt(r, "transports"),
+                getInt(r, "teleports"), getInt(r, "teleports_builtin"), getInt(r, "teleports_script")
+        );
+    }
+
+    @Override
+    public int navRegisterTeleports(String json, String format) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("json", json);
+        if (format != null && !format.equals("item_teleports")) params.put("format", format);
+        Map<String, Object> r = rpc.callSync("nav.register_teleports", params);
+        return getInt(r, "added");
+    }
+
+    @Override
+    public int navClearScriptTeleports() {
+        Map<String, Object> r = rpc.callSync("nav.clear_script_teleports", Map.of());
+        return getInt(r, "removed");
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<NavTeleport> navListTeleports(boolean scriptOnly) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        if (scriptOnly) params.put("script_only", true);
+        Map<String, Object> r = rpc.callSync("nav.list_teleports", params);
+        List<Map<String, Object>> list = getList(r, "teleports");
+        return list.stream().map(m -> new NavTeleport(
+                getInt(m, "index"), getString(m, "name"), getBool(m, "global"),
+                getInt(m, "dest_x"), getInt(m, "dest_y"), getInt(m, "dest_plane"),
+                getDouble(m, "cost"), getDouble(m, "cost_quick"),
+                getInt(m, "chain_steps"), getInt(m, "requirements"), getBool(m, "builtin")
+        )).toList();
+    }
+
+    // ========================== Navigation Helpers ==========================
+
+    private void navRemoveLink(String method, int objectId, int x, int y, int plane) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", objectId);
+        params.put("x", x);
+        params.put("y", y);
+        if (plane != 0) params.put("plane", plane);
+        rpc.callSync(method, params);
+    }
+
+    private Map<String, Object> transportToMap(NavTransport t) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", t.objectId());
+        params.put("x", t.x());
+        params.put("y", t.y());
+        if (t.plane() != 0) params.put("plane", t.plane());
+        if (t.shape() != 10) params.put("shape", t.shape());
+        if (t.rotation() != 0) params.put("rotation", t.rotation());
+        if (t.optionIndex() != 0) params.put("option_index", t.optionIndex());
+        params.put("dest_x", t.destX());
+        params.put("dest_y", t.destY());
+        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
+        return params;
+    }
+
     // ========================== Config Type Lookups ==========================
 
     @Override
@@ -980,6 +1286,17 @@ public class GameAPIImpl implements GameAPI {
                 getInt(m, "population"), getInt(m, "ping"),
                 getString(m, "activity")
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private PathResult mapPathResult(Map<String, Object> r) {
+        boolean found = getBool(r, "found");
+        int pathLength = getInt(r, "path_length");
+        List<Map<String, Object>> rawPath = getList(r, "path");
+        List<int[]> path = rawPath.stream()
+                .map(p -> new int[]{getInt(p, "x"), getInt(p, "y")})
+                .toList();
+        return new PathResult(found, pathLength, path);
     }
 
     @SuppressWarnings("unchecked")
