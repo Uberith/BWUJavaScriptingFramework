@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.ServiceLoader;
@@ -24,7 +24,7 @@ import java.util.ServiceLoader;
 /**
  * Discovers BotScript implementations from local JAR files in a scripts directory.
  * Each JAR is a Java module that {@code provides BotScript with ...}.
- * Loaded into child module layers so ServiceLoader can find them.
+ * Loaded into a child ModuleLayer so ServiceLoader can find them.
  */
 public final class LocalScriptLoader {
 
@@ -32,7 +32,7 @@ public final class LocalScriptLoader {
     private static final String SCRIPTS_DIR_NAME = "scripts";
     private static final String SCRIPTS_DIR_PROPERTY = "botwithus.scripts.dir";
 
-    /** Track parent classloaders from previous loads so we can close them on reload. */
+    /** Track classloaders from previous loads so we can close them on reload. */
     private static final List<URLClassLoader> previousLoaders = new ArrayList<>();
 
     private LocalScriptLoader() {}
@@ -47,14 +47,15 @@ public final class LocalScriptLoader {
     /**
      * Resolves the scripts directory. Checks (in order):
      * 1. System property {@code botwithus.scripts.dir}
-     * 2. {@code scripts/} relative to the working directory or its parents
+     * 2. {@code scripts/} relative to the user home {@code .botwithus/} directory
+     * 3. {@code scripts/} relative to the working directory
      */
     static Path resolveScriptsDir() {
         String override = System.getProperty(SCRIPTS_DIR_PROPERTY);
         if (override != null) {
             return Path.of(override);
         }
-
+        // Walk up from working directory to find scripts/ (handles submodule working dirs)
         Path dir = Path.of("").toAbsolutePath();
         for (int i = 0; i < 3; i++) {
             Path candidate = dir.resolve(SCRIPTS_DIR_NAME);
@@ -62,11 +63,9 @@ public final class LocalScriptLoader {
                 return candidate;
             }
             dir = dir.getParent();
-            if (dir == null) {
-                break;
-            }
+            if (dir == null) break;
         }
-
+        // Fallback: create in working directory
         return Path.of(SCRIPTS_DIR_NAME);
     }
 
@@ -76,7 +75,7 @@ public final class LocalScriptLoader {
     public static List<BotScript> loadScripts(Path scriptsDir) {
         if (!Files.isDirectory(scriptsDir)) {
             log.info("Scripts directory not found: {}", scriptsDir.toAbsolutePath());
-            log.info("Creating it - drop script JARs there and restart.");
+            log.info("Creating it — drop script JARs there and restart.");
             try {
                 Files.createDirectories(scriptsDir);
             } catch (IOException e) {
@@ -85,14 +84,13 @@ public final class LocalScriptLoader {
             return List.of();
         }
 
+        // Close previous classloaders to release JAR file handles (critical on Windows)
         closePreviousLoaders();
 
+        // Find all JARs in the scripts directory
         List<Path> jars;
         try (var stream = Files.list(scriptsDir)) {
-            jars = stream
-                    .filter(path -> path.toString().endsWith(".jar"))
-                    .sorted()
-                    .toList();
+            jars = stream.filter(p -> p.toString().endsWith(".jar")).toList();
         } catch (IOException e) {
             log.error("Failed to scan scripts directory: {}", e.getMessage());
             return List.of();
@@ -106,23 +104,24 @@ public final class LocalScriptLoader {
         log.info("Found {} JAR(s) in {}", jars.size(), scriptsDir.toAbsolutePath());
 
         ModuleFinder finder = ModuleFinder.of(jars.toArray(Path[]::new));
-        List<ModuleReference> scriptModules = finder.findAll().stream()
+        List<ModuleReference> moduleReferences = finder.findAll().stream()
                 .filter(LocalScriptLoader::providesBotScript)
-                .sorted(Comparator.comparing(ref -> ref.descriptor().name()))
                 .toList();
 
-        if (scriptModules.isEmpty()) {
+        if (moduleReferences.isEmpty()) {
             log.info("No BotScript provider modules found in {}", scriptsDir.toAbsolutePath());
             return List.of();
         }
 
+        // Fail-fast: if this module (core) doesn't declare 'uses BotScript',
+        // ServiceLoader will silently return empty for ALL script JARs.
         Module coreModule = LocalScriptLoader.class.getModule();
         if (coreModule.isNamed()) {
             boolean declaresUses = coreModule.getDescriptor().uses()
                     .contains(BotScript.class.getName());
             if (!declaresUses) {
                 log.error("FATAL: Module '{}' is missing 'uses com.botwithus.bot.api.BotScript;' in module-info.java", coreModule.getName());
-                log.error("ServiceLoader will not discover any scripts without it.");
+                log.error("ServiceLoader will not discover any scripts without it!");
                 return List.of();
             }
         }
@@ -134,15 +133,16 @@ public final class LocalScriptLoader {
                 .toArray(URL[]::new);
         List<BotScript> allScripts = new ArrayList<>();
 
-        for (ModuleReference ref : scriptModules) {
-            String moduleName = ref.descriptor().name();
+        for (ModuleReference ref : moduleReferences) {
+            String name = ref.descriptor().name();
 
             try {
                 Configuration cfg = bootLayer.configuration().resolve(
-                        finder, ModuleFinder.of(), Collections.singleton(moduleName));
-                URLClassLoader parentLoader = new URLClassLoader(jarUrls, ClassLoader.getSystemClassLoader());
-                previousLoaders.add(parentLoader);
-                ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, parentLoader);
+                        finder, ModuleFinder.of(), Collections.singleton(name));
+                URLClassLoader classLoader = new URLClassLoader(jarUrls, ClassLoader.getSystemClassLoader());
+                previousLoaders.add(classLoader);
+                ModuleLayer layer = bootLayer.defineModulesWithOneLoader(
+                        cfg, classLoader);
 
                 ServiceLoader<BotScript> loader = ServiceLoader.load(layer, BotScript.class);
                 int countBefore = allScripts.size();
@@ -152,12 +152,12 @@ public final class LocalScriptLoader {
                 }
 
                 if (allScripts.size() == countBefore) {
-                    log.warn("Module '{}' declares 'provides BotScript' but ServiceLoader found 0 implementations.", moduleName);
+                    log.warn("Module '{}' declares 'provides BotScript' but ServiceLoader found 0 implementations.", name);
                 }
             } catch (FindException | ResolutionException e) {
-                log.error("Failed to load script module '{}': {}", moduleName, e.getMessage());
+                log.error("Failed to load module {}: {}", name, e.getMessage());
             } catch (Exception e) {
-                log.error("Failed to load script module '{}': {}", moduleName, e.getMessage(), e);
+                log.error("Failed to load module {}: {}", name, e.getMessage(), e);
             }
         }
 
@@ -166,7 +166,7 @@ public final class LocalScriptLoader {
 
     private static boolean providesBotScript(ModuleReference ref) {
         return ref.descriptor().provides().stream()
-                .anyMatch(provides -> provides.service().equals(BotScript.class.getName()));
+                .anyMatch(p -> p.service().equals(BotScript.class.getName()));
     }
 
     private static URL toUrl(Path jar) {

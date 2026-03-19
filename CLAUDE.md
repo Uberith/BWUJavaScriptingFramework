@@ -1,85 +1,81 @@
-# CLAUDE.md
+1
+0# CLAUDE.md
 
-This file gives Claude Code repo-specific guidance for working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repo Snapshot
+## Project Overview
 
-- Repository folder: `BWUJavaScriptingFramework`
-- Gradle root project name: `JBotWithUsV2`
-- Java toolchain: `25`
-- Build system: Gradle Kotlin DSL
-- Platform bias: Windows-first because the runtime talks to the game through named pipes
-- Main runtime entrypoint: `com.botwithus.bot.cli.gui.ImGuiApp`
+JBotWithUsV2 is a Java 21 modular game scripting framework. It communicates with a game server via Windows named pipes using MessagePack-encoded JSON-RPC. Scripts are dynamically discovered at runtime via Java's ServiceLoader SPI and execute on virtual threads.
 
-## Project Structure
+Group: `com.botwithus` | Java 21 | Gradle 8.14 (Kotlin DSL) | JUnit 5
 
-The repo is a modular Java application with four Gradle subprojects:
-
-- `api` - Public scripting API, models, constants, query builders, wrappers, logging facade, script SPI
-- `core` - Pipe/RPC transport, runtime, loader, lifecycle management, profiling, reconnect/retry support
-- `cli` - ImGui desktop host, command system, log capture, script management, external runtime shell
-- `example-script` - Example scripts that build into JARs and get copied into `scripts/`
-
-Dependency direction:
-
-```text
-api <- core <- cli
-api <- example-script
-```
-
-Important directories:
-
-- `api/src/main/java` - Public API surface exposed to scripts
-- `core/src/main/java` - Runtime, loader, RPC, pipe, implementations
-- `cli/src/main/java` - Desktop host, GUI, commands, log plumbing
-- `example-script/src/main/java` - Sample scripts and sample script UI usage
-- `scripts/` - Discovered script JARs loaded by the runtime
-
-## Working Rules
-
-- Do not add or update tests unless the user explicitly asks for tests.
-- Prefer updating production code, docs, or build logic without introducing new test coverage by default.
-- Keep changes modular. New script-facing contracts belong in `api`; runtime behavior belongs in `core`; host/UI behavior belongs in `cli`.
-- Preserve Java module boundaries. If reflection-based libraries need access, update `module-info.java` deliberately.
-- Prefer the Gradle wrapper (`./gradlew` or `gradlew.bat`) over a system Gradle install.
-- On Windows, the running CLI can lock built JARs. If a build fails on a locked artifact, stop the running app before retrying.
-
-## Build And Verification
-
-Use targeted Gradle tasks for the area you changed:
+## Build Commands
 
 ```bash
-./gradlew :api:compileJava
-./gradlew :core:compileJava
-./gradlew :cli:compileJava
-./gradlew :example-script:build
-./gradlew :cli:run
+./gradlew build                    # Build all modules (also installs example-script JAR to scripts/)
+./gradlew clean build              # Clean and rebuild
+./gradlew :cli:run                 # Run the CLI/GUI application
+./gradlew :example-script:build    # Build and auto-install example script to scripts/
+./gradlew test                     # Run tests
+./gradlew test --tests "com.botwithus.SomeTest.methodName"  # Run a single test
 ```
 
-Useful full builds:
+## Module Architecture
 
-```bash
-./gradlew build
-./gradlew clean build
+Four Gradle subprojects with strict dependency layering:
+
+```
+api                 (slf4j-api)      — Public interfaces, models, query builders
+  ↑ required by
+core                (api + msgpack + logback) — RPC client, pipe transport, script runtime
+  ↑ required by
+cli                 (api + core)     — Interactive CLI/GUI, command system
+example-script      (api only)       — Example BotScript implementations
 ```
 
-Notes:
+### api (`com.botwithus.bot.api`)
+Pure interface module (sole dependency: `slf4j-api`, exposed transitively). Contains:
+- **`BotScript`** — SPI interface scripts implement (`onStart`/`onLoop`/`onStop`)
+- **`GameAPI`** — 100+ methods for game interaction (entities, inventories, actions, UI, vars, cache)
+- **`ScriptContext`** — Provides scripts access to GameAPI, EventBus, MessageBus
+- **`ScriptManifest`** — Annotation for script metadata
+- **`entities/`** — Fluent query builders: `Npcs`, `Players`, `SceneObjects`, `GroundItems`
+- **`inventory/`** — `Backpack`, `Bank`, `Equipment` wrappers
+- **`event/`** — `EventBus` and game events
+- **`isc/`** — Inter-Script Communication via `MessageBus`
+- **`query/`** — Filter interfaces for entity/component/inventory queries
 
-- `example-script:build` copies its output JAR into `scripts/`.
-- `:cli:run` launches the desktop host from the repo root.
-- Prefer compile/package verification over adding tests when validating normal changes.
+### core (`com.botwithus.bot.core`)
+Runtime and communication layer:
+- **`pipe/PipeClient`** — Windows named pipe client (`\\.\pipe\BotWithUs`), length-prefixed messages
+- **`rpc/RpcClient`** — Synchronous JSON-RPC over pipe with MessagePack serialization
+- **`msgpack/MessagePackCodec`** — Serialization using `org.msgpack:msgpack-core:0.9.8`
+- **`runtime/ScriptLoader`** — Discovers script JARs in `scripts/` dir, creates child `ModuleLayer` per script
+- **`runtime/ScriptRuntime`** — Manages script lifecycle across multiple scripts
+- **`runtime/ScriptRunner`** — Runs individual script on a virtual thread; sets MDC keys `script.name` and `connection.name`
+- **`impl/`** — Concrete implementations of API interfaces (`GameAPIImpl`, `EventBusImpl`, etc.)
 
-## Repo-Specific Implementation Notes
+Logging: All modules use SLF4J (`org.slf4j.Logger`/`LoggerFactory`). Logback Classic is the runtime backend (configured in `cli/src/main/resources/logback.xml`). The `BotLogger` API in `api/log/` delegates to SLF4J. Script log output is auto-tagged via MDC.
 
-- The project is fully modularized. Check `module-info.java` before adding dependencies or cross-module access.
-- `core` uses `org.gradlex.extra-java-module-info` for non-modular dependencies like MessagePack.
-- `cli` uses LWJGL and ImGui native dependencies and extracts natives before `run`.
-- Logging is SLF4J-based with Logback as the runtime backend.
-- Script discovery is handled from the `scripts/` directory via the runtime loader in `core`.
+### cli (`com.botwithus.bot.cli`)
+Interactive application with command system:
+- **Main class**: `com.botwithus.bot.cli.gui.ImGuiApp`
+- **Commands**: `connect`, `scripts`, `screenshot`, `logs`, `reload`, `ping`, `help`, `clear`, `exit`
+- **`gui/`** — ImGui-based GUI with ANSI color support
+- **`command/`** — Command registry, parser, and implementations
+- **`log/`** — `LogBuffer` ring buffer, `LogCapture` for stdout/stderr, `LogBufferAppender` (Logback → LogBuffer bridge)
 
-## Change Placement Guide
+### example-script (`com.botwithus.bot.scripts.example`)
+Reference implementations: `ExampleScript`, `WoodcuttingFletcherScript`. Build auto-copies JAR to `scripts/`.
 
-- Add new scripting interfaces, helpers, constants, and wrappers in `api`.
-- Add loader/runtime/reconnect/profiling behavior in `core`.
-- Add GUI panels, log presentation, command behavior, and host-side script UI handling in `cli`.
-- Keep `example-script` as a reference consumer of the public API, not as the place for framework logic.
+## Key Patterns
+
+**Script SPI**: Scripts must be Java modules that `provides com.botwithus.bot.api.BotScript with <ClassName>` in their `module-info.java`. Scripts return delay (ms) from `onLoop()`, or `-1` to stop.
+
+**Communication flow**: `BotScript → GameAPI → RpcClient → PipeClient → Game Server`
+
+**Module path**: The CLI's run task places the API JAR on the module path (not classpath) so `ScriptLoader` can build child module layers that reference the API module.
+
+**Script installation**: Script JARs go in the `scripts/` directory at project root. The `example-script` build task does this automatically via `installScript`.
+
+**Logging**: Use `private static final Logger log = LoggerFactory.getLogger(ClassName.class);` (from `org.slf4j`). Never use `System.out/err.println` for logging — all output goes through SLF4J. Scripts get SLF4J transitively from the API module. MDC keys `script.name` and `connection.name` are set automatically by `ScriptRunner`.

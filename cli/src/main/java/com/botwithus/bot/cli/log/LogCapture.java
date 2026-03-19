@@ -63,18 +63,16 @@ public class LogCapture {
         private final PrintStream original;
         private final LogBuffer logBuffer;
         private final String source;
-        private final String defaultLevel;
+        private final String level;
         private final LogCapture capture;
         private final ByteArrayOutputStream lineBuffer = new ByteArrayOutputStream();
-        private String previousLevel;
 
         TeeOutputStream(PrintStream original, LogBuffer logBuffer, String source, String level, LogCapture capture) {
             this.original = original;
             this.logBuffer = logBuffer;
             this.source = source;
-            this.defaultLevel = level;
+            this.level = level;
             this.capture = capture;
-            this.previousLevel = level;
         }
 
         @Override
@@ -103,11 +101,9 @@ public class LogCapture {
             lineBuffer.reset();
 
             String connection = ConnectionContext.get();
-            String effectiveLevel = LogLineClassifier.classify(defaultLevel, previousLevel, line);
-            previousLevel = effectiveLevel;
 
-            if (!line.isEmpty() && !LogLineClassifier.isStructuredConsoleLog(line)) {
-                logBuffer.add(new LogEntry(source, effectiveLevel, line, connection));
+            if (!line.isEmpty()) {
+                logBuffer.add(new LogEntry(source, level, line, connection));
             }
 
             // Apply connection filter: print to original if no filter, or connection is null

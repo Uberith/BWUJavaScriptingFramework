@@ -50,15 +50,11 @@ public class ScriptRuntime {
      * Registers a script without starting it. Use {@link ScriptRunner#start()} to start later.
      */
     public ScriptRunner registerScript(BotScript script) {
-        String scriptClass = script.getClass().getName();
         ScriptRunner runner = new ScriptRunner(script, context);
         if (connectionName != null) {
             runner.setConnectionName(connectionName);
         }
-        int before = runners.size();
         runners.add(runner);
-        log.info("Registered script '{}' ({}) on connection '{}'. RunnersBefore={}, RunnersAfter={}",
-                runner.getScriptName(), scriptClass, connectionName, before, runners.size());
         return runner;
     }
 

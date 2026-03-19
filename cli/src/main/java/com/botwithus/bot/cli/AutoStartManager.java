@@ -71,11 +71,10 @@ public class AutoStartManager {
             return;
         }
 
+        // Load available scripts and start matching ones
         ScriptRuntime runtime = conn.getRuntime();
-        ctx.registerAvailableScripts(conn);
-
-        List<BotScript> available = null;
-        List<BotScript> blueprints = null;
+        List<BotScript> available = ctx.loadScripts();
+        List<BotScript> blueprints = ctx.loadBlueprints();
 
         int started = 0;
         for (String targetName : scriptNames) {
@@ -90,11 +89,6 @@ public class AutoStartManager {
             }
 
             // Find in available scripts
-            if (available == null) {
-                available = ctx.loadScripts();
-                blueprints = ctx.loadBlueprints();
-            }
-
             BotScript match = findScript(targetName, available);
             if (match == null) {
                 match = findScript(targetName, blueprints);
@@ -186,15 +180,6 @@ public class AutoStartManager {
             }
             if (displayName != null && !displayName.isEmpty()) {
                 conn.setAccountInfo(info);
-                // Load and register scripts before auto-starting
-                List<BotScript> scripts = ctx.loadScripts();
-                for (BotScript script : scripts) {
-                    conn.getRuntime().registerScript(script);
-                }
-                List<BotScript> blueprints = ctx.loadBlueprints();
-                for (BotScript bp : blueprints) {
-                    conn.getRuntime().registerScript(bp);
-                }
                 onConnectionEstablished(conn, displayName);
             }
         } catch (Exception e) {
