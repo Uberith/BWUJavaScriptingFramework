@@ -35,10 +35,10 @@ public final class SDNScriptLoader {
         List<BotScript> allScripts = new ArrayList<>(loadLocalScripts());
 
         if (rpc != null) {
-            allScripts.addAll(loadSdnScripts(rpc));
+            List<BotScript> sdnScripts = loadSdnScripts(rpc);
+            allScripts.addAll(sdnScripts);
+            enforceLockdown(sdnScripts);
         }
-
-        enforceLockdown(allScripts);
         return allScripts;
     }
 
@@ -94,9 +94,7 @@ public final class SDNScriptLoader {
      * This is the legacy entry point — equivalent to {@link #loadLocalScripts()}.
      */
     public static List<BotScript> loadScripts() {
-        List<BotScript> scripts = loadLocalScripts();
-        enforceLockdown(scripts);
-        return scripts;
+        return loadLocalScripts();
     }
 
     /**
@@ -104,9 +102,7 @@ public final class SDNScriptLoader {
      * This is the legacy entry point — equivalent to {@link #loadLocalScripts(Path)}.
      */
     public static List<BotScript> loadScripts(Path scriptsDir) {
-        List<BotScript> scripts = loadLocalScripts(scriptsDir);
-        enforceLockdown(scripts);
-        return scripts;
+        return loadLocalScripts(scriptsDir);
     }
 
     /**

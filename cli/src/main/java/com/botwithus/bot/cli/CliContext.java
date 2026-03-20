@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.blueprint.BlueprintGraph;
 
 import org.slf4j.Logger;
@@ -35,9 +36,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class CliContext {
@@ -153,6 +156,7 @@ public class CliContext {
             conn.setEventBus(eventBus);
             connections.put(connName, conn);
             activeConnectionName = connName;
+            registerAvailableScripts(conn);
             out().println("Connected to pipe: " + pipe.getPipePath());
             if (connections.size() > 1) {
                 out().println("Active connection set to '" + connName + "'.");
@@ -456,5 +460,42 @@ public class CliContext {
 
     public boolean isWatcherRunning() {
         return scriptWatcher != null && scriptWatcher.isRunning();
+    }
+
+    public int registerAvailableScripts(Connection conn) {
+        if (conn == null || !conn.isAlive()) {
+            return 0;
+        }
+
+        ScriptRuntime runtime = conn.getRuntime();
+        List<BotScript> scripts = loadScripts();
+        List<BotScript> blueprints = loadBlueprints();
+        Set<String> existingNames = new HashSet<>();
+        for (ScriptRunner runner : runtime.getRunners()) {
+            existingNames.add(runner.getScriptName());
+        }
+
+        int added = 0;
+        for (BotScript script : scripts) {
+            if (existingNames.add(getScriptDisplayName(script))) {
+                runtime.registerScript(script);
+                added++;
+            }
+        }
+        for (BotScript blueprint : blueprints) {
+            if (existingNames.add(getScriptDisplayName(blueprint))) {
+                runtime.registerScript(blueprint);
+                added++;
+            }
+        }
+        return added;
+    }
+
+    private static String getScriptDisplayName(BotScript script) {
+        if (script instanceof BlueprintBotScript blueprint) {
+            return blueprint.getMetadata().name();
+        }
+        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
+        return manifest != null ? manifest.name() : script.getClass().getSimpleName();
     }
 }

@@ -7,13 +7,19 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.module.Configuration;
+import java.lang.module.FindException;
 import java.lang.module.ModuleFinder;
 import java.lang.module.ModuleReference;
+import java.lang.module.ResolutionException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.ServiceLoader;
 
 /**
  * Discovers BotScript implementations from local JAR files in a scripts directory.
@@ -97,11 +103,13 @@ public final class LocalScriptLoader {
 
         log.info("Found {} JAR(s) in {}", jars.size(), scriptsDir.toAbsolutePath());
 
-        ModuleFinder finder = ModuleFinder.of(scriptsDir);
-        Set<ModuleReference> moduleReferences = finder.findAll();
+        ModuleFinder finder = ModuleFinder.of(jars.toArray(Path[]::new));
+        List<ModuleReference> moduleReferences = finder.findAll().stream()
+                .filter(LocalScriptLoader::providesBotScript)
+                .toList();
 
         if (moduleReferences.isEmpty()) {
-            log.info("No modules found in JARs. Ensure each JAR has a module-info with 'provides BotScript with ...'");
+            log.info("No BotScript provider modules found in {}", scriptsDir.toAbsolutePath());
             return List.of();
         }
 
@@ -118,35 +126,23 @@ public final class LocalScriptLoader {
             }
         }
 
-        List<BotScript> allScripts = new ArrayList<>();
         ModuleLayer bootLayer = ModuleLayer.boot();
+        URL[] jarUrls = jars.stream()
+                .map(LocalScriptLoader::toUrl)
+                .filter(Objects::nonNull)
+                .toArray(URL[]::new);
+        List<BotScript> allScripts = new ArrayList<>();
 
         for (ModuleReference ref : moduleReferences) {
             String name = ref.descriptor().name();
-            var location = ref.location();
-            if (location.isEmpty()) {
-                log.info("Module {} has no location, skipping.", name);
-                continue;
-            }
 
             try {
-                URL jarURL = location.get().toURL();
                 Configuration cfg = bootLayer.configuration().resolve(
                         finder, ModuleFinder.of(), Collections.singleton(name));
-                URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
+                URLClassLoader classLoader = new URLClassLoader(jarUrls, ClassLoader.getSystemClassLoader());
                 previousLoaders.add(classLoader);
                 ModuleLayer layer = bootLayer.defineModulesWithOneLoader(
                         cfg, classLoader);
-
-                Optional<Module> module = layer.findModule(name);
-                if (module.isEmpty()) {
-                    log.info("Module {} could not be found in layer, skipping.", name);
-                    continue;
-                }
-
-                // Check if the module declares 'provides BotScript'
-                boolean providesBotScript = module.get().getDescriptor().provides().stream()
-                        .anyMatch(p -> p.service().equals(BotScript.class.getName()));
 
                 ServiceLoader<BotScript> loader = ServiceLoader.load(layer, BotScript.class);
                 int countBefore = allScripts.size();
@@ -155,18 +151,31 @@ public final class LocalScriptLoader {
                     log.info("Loaded: {}", script.getClass().getName());
                 }
 
-                int loaded = allScripts.size() - countBefore;
-                if (loaded == 0 && providesBotScript) {
+                if (allScripts.size() == countBefore) {
                     log.warn("Module '{}' declares 'provides BotScript' but ServiceLoader found 0 implementations.", name);
-                } else if (loaded == 0) {
-                    log.info("Module '{}' contains no BotScript providers — skipping.", name);
                 }
+            } catch (FindException | ResolutionException e) {
+                log.error("Failed to load module {}: {}", name, e.getMessage());
             } catch (Exception e) {
                 log.error("Failed to load module {}: {}", name, e.getMessage(), e);
             }
         }
 
         return allScripts;
+    }
+
+    private static boolean providesBotScript(ModuleReference ref) {
+        return ref.descriptor().provides().stream()
+                .anyMatch(p -> p.service().equals(BotScript.class.getName()));
+    }
+
+    private static URL toUrl(Path jar) {
+        try {
+            return jar.toUri().toURL();
+        } catch (IOException e) {
+            log.warn("Failed to convert JAR path to URL: {}", jar, e);
+            return null;
+        }
     }
 
     /**

@@ -180,15 +180,6 @@ public class AutoStartManager {
             }
             if (displayName != null && !displayName.isEmpty()) {
                 conn.setAccountInfo(info);
-                // Load and register scripts before auto-starting
-                List<BotScript> scripts = ctx.loadScripts();
-                for (BotScript script : scripts) {
-                    conn.getRuntime().registerScript(script);
-                }
-                List<BotScript> blueprints = ctx.loadBlueprints();
-                for (BotScript bp : blueprints) {
-                    conn.getRuntime().registerScript(bp);
-                }
                 onConnectionEstablished(conn, displayName);
             }
         } catch (Exception e) {
