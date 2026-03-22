@@ -7,6 +7,7 @@ plugins {
 val lwjglVersion = "3.3.6"
 val imguiVersion = "1.90.0"
 val lwjglNatives = "natives-windows"
+val extractedNativesDir = layout.buildDirectory.dir("natives")
 
 dependencies {
     implementation(project(":api"))
@@ -29,17 +30,21 @@ application {
     mainModule = "com.botwithus.bot.cli"
 }
 
-val extractNatives by tasks.registering(Copy::class) {
-    val nativeJars = configurations.runtimeClasspath.get().filter { it.name.contains("natives") }
-    nativeJars.forEach { from(zipTree(it)) }
-    into(layout.buildDirectory.dir("natives"))
+val extractNatives by tasks.registering(Sync::class) {
+    val nativeJars = configurations.runtimeClasspath.map { runtimeClasspath ->
+        runtimeClasspath.filter { it.name.contains("natives") }
+    }
+    from(nativeJars.map { jars -> jars.map(::zipTree) })
+    into(extractedNativesDir)
     include("**/*.dll", "**/*.so", "**/*.dylib")
 }
 
 tasks.named<JavaExec>("run") {
     dependsOn(extractNatives)
     workingDir = rootProject.projectDir
-    jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
+    doFirst {
+        jvmArgs("-Dorg.lwjgl.librarypath=${extractedNativesDir.get().asFile.absolutePath}")
+    }
 }
 
 jlink {

@@ -1,4 +1,5 @@
 val imguiVersion = "1.90.0"
+val jarTask = tasks.named<Jar>("jar")
 
 dependencies {
     implementation(project(":api"))
@@ -7,8 +8,8 @@ dependencies {
 
 // Copy the built script JAR into the scripts/ directory for the runtime to discover
 tasks.register<Copy>("installScript") {
-    dependsOn(tasks.jar)
-    from(tasks.jar.get().archiveFile)
+    dependsOn(jarTask)
+    from(jarTask.flatMap { it.archiveFile })
     into(rootProject.layout.projectDirectory.dir("scripts"))
 }
 
