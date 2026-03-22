@@ -12,12 +12,14 @@ public class LogCapture {
     private final PrintStream originalOut;
     private final PrintStream originalErr;
     private final LogBuffer logBuffer;
+    private final RotatingLogFileSink fileSink;
     private volatile Predicate<String> connectionFilter;
 
     public LogCapture(LogBuffer logBuffer) {
         this.logBuffer = logBuffer;
         this.originalOut = System.out;
         this.originalErr = System.err;
+        this.fileSink = new RotatingLogFileSink();
     }
 
     /** Constructor for GUI mode: uses custom PrintStreams instead of System.out/err. */
@@ -25,6 +27,7 @@ public class LogCapture {
         this.logBuffer = logBuffer;
         this.originalOut = customOut;
         this.originalErr = customErr;
+        this.fileSink = new RotatingLogFileSink();
     }
 
     public void install() {
@@ -35,6 +38,7 @@ public class LogCapture {
     public void restore() {
         System.setOut(originalOut);
         System.setErr(originalErr);
+        fileSink.close();
     }
 
     public PrintStream getOriginalOut() {
@@ -105,6 +109,8 @@ public class LogCapture {
             if (!line.isEmpty()) {
                 logBuffer.add(new LogEntry(source, level, line, connection));
             }
+
+            capture.fileSink.writeLine(line);
 
             // Apply connection filter: print to original if no filter, or connection is null
             // (system message), or the filter matches.
